@@ -7,5 +7,16 @@
     "app/api/**/*.ts": {
       "maxDuration": 300
     }
-  }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "frame-ancestors 'self' https://sbvlms.cloudintegral.com https://santoshlms.cloudintegral.com https://*.cloudintegral.com"
+        }
+      ]
+    }
+  ]
 }
