@@ -26,6 +26,7 @@ import { Textarea as UITextarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { SettingsDialog } from '@/components/settings';
 import { GenerationToolbar } from '@/components/generation/generation-toolbar';
+import { CompetencySelector } from '@/components/generation/competency-selector';
 import { AgentBar } from '@/components/agent/agent-bar';
 import { useTheme } from '@/lib/hooks/use-theme';
 import { nanoid } from 'nanoid';
@@ -72,6 +73,7 @@ function HomePage() {
   const { theme, setTheme } = useTheme();
   const router = useRouter();
   const [form, setForm] = useState<FormState>(initialFormState);
+  const [selectedCompetencies, setSelectedCompetencies] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<
     import('@/lib/types/settings').SettingsSection | undefined
@@ -257,6 +259,7 @@ function HomePage() {
         userNickname: userProfile.nickname || undefined,
         userBio: userProfile.bio || undefined,
         webSearch: form.webSearch || undefined,
+        competencyCodes: selectedCompetencies.length > 0 ? selectedCompetencies : undefined,
       };
 
       let pdfStorageKey: string | undefined;
@@ -543,6 +546,14 @@ function HomePage() {
               onKeyDown={handleKeyDown}
               rows={4}
             />
+
+            {/* Competency selector */}
+            <div className="px-3 pb-1">
+              <CompetencySelector
+                selectedCodes={selectedCompetencies}
+                onChange={setSelectedCompetencies}
+              />
+            </div>
 
             {/* Toolbar row */}
             <div className="px-3 pb-3 flex items-end gap-2">
