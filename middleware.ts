@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 const PROTECTED_ROUTES = ['/', '/generation-preview'];
 const PROTECTED_API_PREFIXES = ['/api/generate', '/api/competencies/enrich'];
 const PUBLIC_ROUTES = ['/login', '/guide', '/classroom'];
-const PUBLIC_API_PREFIXES = ['/api/auth', '/api/classroom', '/api/health'];
-const PUBLIC_API_EXACT = ['/api/competencies', '/api/competencies/search'];
+const PUBLIC_API_PREFIXES = ['/api/auth', '/api/classroom', '/api/health', '/api/generate/tts'];
+const PUBLIC_API_EXACT = ['/api/competencies', '/api/competencies/search', '/api/chat', '/api/quiz-grade'];
 
 // Edge-compatible HMAC verification using Web Crypto API
 async function verifyToken(token: string): Promise<boolean> {
