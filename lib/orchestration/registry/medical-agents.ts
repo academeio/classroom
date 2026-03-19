@@ -226,6 +226,66 @@ You never overshadow the professor; you amplify and support their teaching.`,
 };
 
 // ---------------------------------------------------------------------------
+// Phase / Year Mapping
+// ---------------------------------------------------------------------------
+
+/**
+ * NMC CBME phase mapping by subject code.
+ * Phase 1 (Year 1): Pre-clinical — Anatomy, Biochemistry, Physiology
+ * Phase 2 (Year 2): Para-clinical — Pathology, Pharmacology, Microbiology, FM, CM
+ * Phase 3 (Year 3-4): Clinical — Medicine, Surgery, OG, Paediatrics, etc.
+ */
+const PHASE_MAP: Record<string, { phase: number; year: string; label: string }> = {
+  AN: { phase: 1, year: 'first-year', label: 'Phase 1 (Pre-clinical)' },
+  BI: { phase: 1, year: 'first-year', label: 'Phase 1 (Pre-clinical)' },
+  PY: { phase: 1, year: 'first-year', label: 'Phase 1 (Pre-clinical)' },
+  PA: { phase: 2, year: 'second-year', label: 'Phase 2 (Para-clinical)' },
+  PH: { phase: 2, year: 'second-year', label: 'Phase 2 (Para-clinical)' },
+  MI: { phase: 2, year: 'second-year', label: 'Phase 2 (Para-clinical)' },
+  FM: { phase: 2, year: 'second-year', label: 'Phase 2 (Para-clinical)' },
+  CM: { phase: 2, year: 'second-year', label: 'Phase 2 (Para-clinical)' },
+  IM: { phase: 3, year: 'third-year', label: 'Phase 3 (Clinical)' },
+  SU: { phase: 3, year: 'third-year', label: 'Phase 3 (Clinical)' },
+  OG: { phase: 3, year: 'third-year', label: 'Phase 3 (Clinical)' },
+  PE: { phase: 3, year: 'third-year', label: 'Phase 3 (Clinical)' },
+  OR: { phase: 3, year: 'third-year', label: 'Phase 3 (Clinical)' },
+  EN: { phase: 3, year: 'third-year', label: 'Phase 3 (Clinical)' },
+  OP: { phase: 3, year: 'third-year', label: 'Phase 3 (Clinical)' },
+  PS: { phase: 3, year: 'third-year', label: 'Phase 3 (Clinical)' },
+  DR: { phase: 3, year: 'third-year', label: 'Phase 3 (Clinical)' },
+  RD: { phase: 3, year: 'third-year', label: 'Phase 3 (Clinical)' },
+  AS: { phase: 3, year: 'third-year', label: 'Phase 3 (Clinical)' },
+};
+
+/**
+ * Determine the CBME phase from subject codes.
+ * If mixed phases, uses the highest (students progress forward).
+ */
+export function getPhaseFromSubjects(subjectCodes: string[]): { phase: number; year: string; label: string } {
+  if (!subjectCodes || subjectCodes.length === 0) {
+    return { phase: 1, year: 'first-year', label: 'Phase 1 (Pre-clinical)' };
+  }
+  let highest = { phase: 1, year: 'first-year', label: 'Phase 1 (Pre-clinical)' };
+  for (const code of subjectCodes) {
+    const entry = PHASE_MAP[code.toUpperCase()];
+    if (entry && entry.phase > highest.phase) {
+      highest = entry;
+    }
+  }
+  return highest;
+}
+
+/**
+ * Create phase-adapted student agents by replacing year references in prompts.
+ */
+function adaptStudentsToPhase(phase: { year: string; label: string }): MedicalAgentConfig[] {
+  return STUDENT_AGENTS.map(agent => ({
+    ...agent,
+    systemPrompt: agent.systemPrompt.replace(/first-year/g, phase.year),
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // Helper Functions
 // ---------------------------------------------------------------------------
 
@@ -265,9 +325,17 @@ export function selectTeachers(subjectCodes: string[]): MedicalAgentConfig[] {
 
 /**
  * Get all agents for a classroom session based on subject codes.
- * Returns selected teacher(s) + all student agents + TA agent.
+ * Returns selected teacher(s) + phase-adapted student agents + TA agent.
+ * Student agents automatically adjust their year/phase based on the subjects being taught.
  */
 export function getClassroomAgents(subjectCodes: string[]): MedicalAgentConfig[] {
   const teachers = selectTeachers(subjectCodes);
-  return [...teachers, ...STUDENT_AGENTS, TA_AGENT];
+  const phase = getPhaseFromSubjects(subjectCodes);
+  const students = adaptStudentsToPhase(phase);
+  // Also adapt the TA prompt
+  const ta = {
+    ...TA_AGENT,
+    systemPrompt: TA_AGENT.systemPrompt.replace(/first-year/g, phase.year),
+  };
+  return [...teachers, ...students, ta];
 }
