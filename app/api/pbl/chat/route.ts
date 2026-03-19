@@ -31,8 +31,8 @@ export async function POST(req: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Message and agent are required');
     }
 
-    // Get model config from headers
-    const { model } = resolveModelFromHeaders(req);
+    // Get model config from headers (default to chat-purpose routing)
+    const { model } = resolveModelFromHeaders(req, 'chat');
 
     // Build context for the agent, differentiating question vs judge
     let issueContext = '';

@@ -14,7 +14,7 @@
 
 import { NextRequest } from 'next/server';
 import { statelessGenerate } from '@/lib/orchestration/stateless-generate';
-import { getModel, parseModelString } from '@/lib/ai/providers';
+import { getModel, parseModelString, getProviderForPurpose } from '@/lib/ai/providers';
 import { resolveApiKey, resolveBaseUrl, resolveProxy } from '@/lib/server/provider-config';
 import type { StatelessChatRequest, StatelessEvent } from '@/lib/types/chat';
 import type { ThinkingConfig } from '@/lib/types/provider';
@@ -61,8 +61,8 @@ export async function POST(req: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Missing required field: config.agentIds');
     }
 
-    // Resolve API key: client > server > empty
-    const modelString = body.model || 'gpt-4o-mini';
+    // Resolve API key: client > server > Gemini Flash (chat purpose)
+    const modelString = body.model || getProviderForPurpose('chat').model;
     const { providerId, modelId } = parseModelString(modelString);
 
     const clientBaseUrl = body.baseUrl || undefined;

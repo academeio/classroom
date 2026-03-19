@@ -1073,6 +1073,41 @@ export function getAllModels(): {
 }
 
 /**
+ * Purpose-based provider routing.
+ *
+ * - 'generation': content generation pipeline (outlines, scenes, agents, grading)
+ *   → Uses Claude (Anthropic) via DEFAULT_MODEL for quality.
+ * - 'chat': live chat / playback / PBL runtime
+ *   → Prefers Gemini Flash for cost-effectiveness, falls back to Claude.
+ */
+export type ProviderPurpose = 'generation' | 'chat';
+
+export function getProviderForPurpose(purpose: ProviderPurpose): {
+  provider: string;
+  model: string;
+} {
+  if (purpose === 'generation') {
+    return {
+      provider: 'anthropic',
+      model: process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-20250514',
+    };
+  }
+
+  // Chat: prefer Gemini Flash for cost-effectiveness, fall back to Claude
+  if (process.env.GOOGLE_API_KEY) {
+    return {
+      provider: 'google',
+      model: 'google:gemini-2.0-flash',
+    };
+  }
+
+  return {
+    provider: 'anthropic',
+    model: process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-20250514',
+  };
+}
+
+/**
  * Get provider by ID
  */
 export function getProvider(providerId: ProviderId): ProviderConfig | undefined {
