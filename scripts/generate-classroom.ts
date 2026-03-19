@@ -25,6 +25,9 @@ config({ path: resolve(__dirname, '..', '.env.local') });
 
 import { nanoid } from 'nanoid';
 import { saveClassroom } from '../lib/storage/neon-classroom-store';
+import { saveAudio } from '../lib/storage/neon-audio-store';
+import { generateTTS } from '../lib/audio/tts-providers';
+import { resolveTTSApiKey, resolveTTSBaseUrl } from '../lib/server/provider-config';
 
 // ── Types ──
 
@@ -126,7 +129,7 @@ function getModelHeaders(model?: string): Record<string, string> {
 // ── Step 1: Authenticate ──
 
 async function authenticate(baseUrl: string, password: string): Promise<void> {
-  console.log('\n[1/6] Authenticating...');
+  console.log('\n[1/7] Authenticating...');
 
   const resp = await fetch(`${baseUrl}/api/auth`, {
     method: 'POST',
@@ -156,7 +159,7 @@ async function enrichCompetencies(
   baseUrl: string,
   codes: string[],
 ): Promise<{ enrichedText: string; subjectCodes: string[] }> {
-  console.log(`\n[2/6] Enriching competencies: ${codes.join(', ')}...`);
+  console.log(`\n[2/7] Enriching competencies: ${codes.join(', ')}...`);
 
   const resp = await apiJson<{
     success: boolean;
@@ -202,7 +205,7 @@ async function generateOutlines(
   language: 'en-US' | 'zh-CN',
   model?: string,
 ): Promise<SceneOutline[]> {
-  console.log('\n[3/6] Generating scene outlines (streaming)...');
+  console.log('\n[3/7] Generating scene outlines (streaming)...');
 
   const resp = await apiFetch(`${baseUrl}/api/generate/scene-outlines-stream`, {
     method: 'POST',
@@ -353,7 +356,7 @@ async function main() {
     enrichedText = enriched.enrichedText;
     subjectCodes = enriched.subjectCodes;
   } else {
-    console.log('\n[2/6] Skipping competency enrichment (no --competencies provided).');
+    console.log('\n[2/7] Skipping competency enrichment (no --competencies provided).');
   }
 
   // Build full requirement text
@@ -382,7 +385,7 @@ async function main() {
   };
 
   // Step 4: Generate content for each scene
-  console.log(`\n[4/6] Generating scene content (${outlines.length} scenes)...`);
+  console.log(`\n[4/7] Generating scene content (${outlines.length} scenes)...`);
   const sceneContents: Array<{ content: any; effectiveOutline: SceneOutline }> = [];
   const errors: string[] = [];
 
@@ -410,7 +413,7 @@ async function main() {
   }
 
   // Step 5: Generate actions for each scene
-  console.log(`\n[5/6] Generating scene actions...`);
+  console.log(`\n[5/7] Generating scene actions...`);
   const scenes: any[] = [];
   let previousSpeeches: string[] = [];
 
@@ -447,10 +450,58 @@ async function main() {
     process.exit(1);
   }
 
-  // Step 6: Assemble and save to Neon
-  console.log(`\n[6/6] Saving classroom to Neon (${scenes.length} scenes)...`);
-
+  // Step 6: Pre-render TTS audio for all speech actions
   const classroomId = nanoid(10);
+  console.log(`\n[6/7] Pre-rendering TTS audio...`);
+
+  const ttsProviderId = 'azure-tts' as const;
+  const ttsVoice = 'en-IN-NeerjaNeural';
+  const ttsSpeed = 2.0;
+  const ttsApiKey = resolveTTSApiKey(ttsProviderId);
+  const ttsBaseUrl = resolveTTSBaseUrl(ttsProviderId);
+
+  let ttsCount = 0;
+  let ttsErrors = 0;
+
+  for (const scene of scenes) {
+    const speechActions = (scene.actions || []).filter(
+      (a: Record<string, unknown>) => a.type === 'speech' && a.text,
+    );
+    for (const action of speechActions) {
+      const audioId = action.audioId as string | undefined;
+      if (!audioId) continue;
+
+      const text = action.text as string;
+      process.stdout.write(`  TTS "${audioId}" (${text.length} chars)... `);
+      try {
+        const { audio, format } = await generateTTS(
+          {
+            providerId: ttsProviderId,
+            voice: ttsVoice,
+            speed: ttsSpeed,
+            apiKey: ttsApiKey,
+            baseUrl: ttsBaseUrl,
+          },
+          text,
+        );
+
+        const base64 = Buffer.from(audio).toString('base64');
+        await saveAudio(audioId, classroomId, base64, format);
+        ttsCount++;
+        console.log(`done (${Math.round(base64.length / 1024)}KB)`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.log(`FAILED: ${msg}`);
+        errors.push(`TTS[${audioId}]: ${msg}`);
+        ttsErrors++;
+      }
+    }
+  }
+
+  console.log(`  Pre-rendered ${ttsCount} audio files (${ttsErrors} errors).`);
+
+  // Step 7: Assemble and save to Neon
+  console.log(`\n[7/7] Saving classroom to Neon (${scenes.length} scenes)...`);
   const classroomData = {
     stage,
     scenes,

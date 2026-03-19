@@ -12,6 +12,7 @@ import { useWhiteboardHistoryStore } from '@/lib/store/whiteboard-history';
 import { createLogger } from '@/lib/logger';
 import { MediaStageProvider } from '@/lib/contexts/media-stage-context';
 import { generateMediaForOutlines } from '@/lib/media/media-orchestrator';
+import { preloadClassroomAudio } from '@/lib/utils/audio-preloader';
 
 const log = createLogger('Classroom');
 
@@ -57,6 +58,11 @@ export default function ClassroomDetailPage() {
           log.warn('Server-side storage fetch failed:', fetchErr);
         }
       }
+
+      // Pre-load pre-rendered TTS audio from Neon into IndexedDB (non-blocking)
+      preloadClassroomAudio(classroomId).catch((err) => {
+        log.warn('Audio pre-load failed (playback will use server TTS fallback):', err);
+      });
 
       // Restore completed media generation tasks from IndexedDB
       await useMediaGenerationStore.getState().restoreFromDB(classroomId);
