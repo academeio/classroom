@@ -7,3 +7,4 @@ export function getDb() {
   }
   return neon(databaseUrl);
 }
+// Singapore DB 1773919908
