@@ -60,6 +60,7 @@ export function Stage({
   // PlaybackEngine state
   const [engineMode, setEngineMode] = useState<EngineMode>('idle');
   const [playbackCompleted, setPlaybackCompleted] = useState(false); // Distinguishes "never played" idle from "finished" idle
+  const [isTTSInFlight, setIsTTSInFlight] = useState(false); // True while server TTS is generating/playing
   const [lectureSpeech, setLectureSpeech] = useState<string | null>(null); // From PlaybackEngine (lecture)
   const [liveSpeech, setLiveSpeech] = useState<string | null>(null); // From buffer (discussion/QA)
   const [speechProgress, setSpeechProgress] = useState<number | null>(null); // StreamBuffer reveal progress (0–1)
@@ -270,6 +271,7 @@ export function Stage({
       },
       onSpeechStart: (text) => {
         setLectureSpeech(text);
+        setIsTTSInFlight(true);
         // Add to lecture session with incrementing index for dedup
         // Chat area pacing is handled by the StreamBuffer (onTextReveal)
         if (lectureSessionIdRef.current) {
@@ -289,6 +291,7 @@ export function Stage({
         // Don't clear lectureSpeech — let it persist until the next
         // onSpeechStart replaces it or the scene transitions.
         // Clearing here causes fallback to idleText (first sentence).
+        setIsTTSInFlight(false);
         setActiveBubbleId(null);
       },
       onEffectFire: (effect: Effect) => {
@@ -640,7 +643,9 @@ export function Stage({
   };
 
   // Map engine mode to the CanvasArea's expected engine state
+  // Keep showing 'playing' while server TTS is in-flight (even if engine briefly goes idle between actions)
   const canvasEngineState = (() => {
+    if (isTTSInFlight) return 'playing';
     switch (engineMode) {
       case 'playing':
       case 'live':
