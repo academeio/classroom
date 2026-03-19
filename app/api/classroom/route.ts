@@ -63,8 +63,8 @@ export async function GET(request: NextRequest) {
         if (neonRecord) {
           classroom = neonRecord.classroom_data as typeof classroom;
         }
-      } catch {
-        // Neon unavailable — fall through to 404
+      } catch (neonErr) {
+        console.error('[Classroom API] Neon fallback error for id:', id, neonErr instanceof Error ? neonErr.message : neonErr);
       }
     }
 
