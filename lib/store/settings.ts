@@ -254,8 +254,8 @@ const getDefaultProvidersConfig = (): ProvidersConfig => {
 
 // Initialize default audio config
 const getDefaultAudioConfig = () => ({
-  ttsProviderId: 'openai-tts' as TTSProviderId,
-  ttsVoice: 'alloy',
+  ttsProviderId: 'azure-tts' as TTSProviderId,
+  ttsVoice: 'en-IN-NeerjaNeural',
   ttsSpeed: 1.0,
   asrProviderId: 'browser-native' as ASRProviderId,
   asrLanguage: 'en',
