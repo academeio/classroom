@@ -1,0 +1,503 @@
+/**
+ * Programmatic Classroom Generation Script
+ *
+ * Calls the step-by-step generation APIs (outlines -> content -> actions)
+ * to create a classroom from CLI arguments, bypassing Vercel serverless limits.
+ * Saves the resulting classroom directly to Neon.
+ *
+ * Usage:
+ *   npx tsx scripts/generate-classroom.ts \
+ *     --base-url "https://classroom.cbme.in" \
+ *     --password "academe-classroom-2026" \
+ *     --topic "Brachial Plexus" \
+ *     --requirement "Interactive classroom on the Brachial Plexus..." \
+ *     --competencies "AN10.3,AN10.5"
+ *
+ * Environment variables (from .env.local):
+ *   DATABASE_URL — Neon connection string (for saving classroom)
+ */
+
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+// Load .env.local from project root
+config({ path: resolve(__dirname, '..', '.env.local') });
+
+import { nanoid } from 'nanoid';
+import { saveClassroom } from '../lib/storage/neon-classroom-store';
+
+// ── Types ──
+
+interface SceneOutline {
+  id: string;
+  type: 'slide' | 'quiz' | 'interactive' | 'pbl';
+  title: string;
+  description: string;
+  keyPoints: string[];
+  order: number;
+  language?: string;
+  [key: string]: unknown;
+}
+
+interface CliArgs {
+  topic: string;
+  requirement: string;
+  competencies?: string;
+  baseUrl: string;
+  password: string;
+  model?: string;
+}
+
+// ── Argument parsing ──
+
+function parseArgs(): CliArgs {
+  const args = process.argv.slice(2);
+  const parsed: Record<string, string> = {};
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith('--') && i + 1 < args.length) {
+      const key = args[i].slice(2);
+      parsed[key] = args[++i];
+    }
+  }
+
+  if (!parsed.topic || !parsed.requirement || !parsed.password) {
+    console.error(`
+Usage:
+  npx tsx scripts/generate-classroom.ts \\
+    --base-url "https://classroom.cbme.in" \\
+    --password "your-password" \\
+    --topic "Brachial Plexus" \\
+    --requirement "Full description of the classroom..." \\
+    --competencies "AN10.3,AN10.5" \\
+    --model "anthropic:claude-sonnet-4-latest"
+
+Required: --topic, --requirement, --password
+Optional: --base-url (default: http://localhost:3000), --competencies, --model
+`);
+    process.exit(1);
+  }
+
+  return {
+    topic: parsed.topic,
+    requirement: parsed.requirement,
+    competencies: parsed.competencies,
+    baseUrl: (parsed['base-url'] || 'http://localhost:3000').replace(/\/$/, ''),
+    password: parsed.password,
+    model: parsed.model,
+  };
+}
+
+// ── HTTP helpers ──
+
+let sessionCookie = '';
+
+async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> || {}),
+  };
+
+  if (sessionCookie) {
+    headers['Cookie'] = sessionCookie;
+  }
+
+  return fetch(url, { ...options, headers });
+}
+
+async function apiJson<T = any>(url: string, options: RequestInit = {}): Promise<T> {
+  const resp = await apiFetch(url, options);
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`HTTP ${resp.status} from ${url}: ${body}`);
+  }
+  return resp.json() as Promise<T>;
+}
+
+function getModelHeaders(model?: string): Record<string, string> {
+  const modelString = model || process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-latest';
+  return {
+    'x-model': modelString,
+    'x-image-generation-enabled': 'false',
+    'x-video-generation-enabled': 'false',
+  };
+}
+
+// ── Step 1: Authenticate ──
+
+async function authenticate(baseUrl: string, password: string): Promise<void> {
+  console.log('\n[1/6] Authenticating...');
+
+  const resp = await fetch(`${baseUrl}/api/auth`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+    redirect: 'manual',
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`Authentication failed (${resp.status}): ${body}`);
+  }
+
+  // Extract set-cookie header
+  const setCookie = resp.headers.get('set-cookie');
+  if (setCookie) {
+    // Extract just the cookie name=value pair
+    sessionCookie = setCookie.split(';')[0];
+  }
+
+  console.log('  Authenticated successfully.');
+}
+
+// ── Step 2: Enrich competencies (optional) ──
+
+async function enrichCompetencies(
+  baseUrl: string,
+  codes: string[],
+): Promise<{ enrichedText: string; subjectCodes: string[] }> {
+  console.log(`\n[2/6] Enriching competencies: ${codes.join(', ')}...`);
+
+  const resp = await apiJson<{
+    success: boolean;
+    data?: Array<{
+      competency_code: string;
+      competency_text: string;
+      domain: string;
+      subject_code: string;
+      subject_name: string;
+      topic_name: string;
+      teaching_methods?: string[];
+      assessment_methods?: string[];
+    }>;
+    error?: string;
+  }>(`${baseUrl}/api/competencies/enrich`, {
+    method: 'POST',
+    body: JSON.stringify({ codes }),
+  });
+
+  if (!resp.success || !resp.data || resp.data.length === 0) {
+    console.warn('  No competency data found, proceeding without enrichment.');
+    return { enrichedText: '', subjectCodes: [] };
+  }
+
+  const subjectCodes = [...new Set(resp.data.map((r) => r.subject_code))];
+
+  const enrichedLines = resp.data.map(
+    (c) =>
+      `- ${c.competency_code}: ${c.competency_text} [${c.domain}] (${c.subject_name} > ${c.topic_name})`,
+  );
+
+  const enrichedText = `\n\nNMC 2024 Competencies to address:\n${enrichedLines.join('\n')}`;
+
+  console.log(`  Found ${resp.data.length} competencies from ${subjectCodes.length} subject(s).`);
+  return { enrichedText, subjectCodes };
+}
+
+// ── Step 3: Generate outlines (SSE) ──
+
+async function generateOutlines(
+  baseUrl: string,
+  requirement: string,
+  language: 'en-US' | 'zh-CN',
+  model?: string,
+): Promise<SceneOutline[]> {
+  console.log('\n[3/6] Generating scene outlines (streaming)...');
+
+  const resp = await apiFetch(`${baseUrl}/api/generate/scene-outlines-stream`, {
+    method: 'POST',
+    headers: getModelHeaders(model),
+    body: JSON.stringify({
+      requirements: {
+        requirement,
+        language,
+      },
+    }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`Outline generation failed (${resp.status}): ${body}`);
+  }
+
+  // Parse SSE stream
+  const text = await resp.text();
+  const lines = text.split('\n');
+  let outlines: SceneOutline[] = [];
+  let doneOutlines: SceneOutline[] | null = null;
+
+  for (const line of lines) {
+    if (!line.startsWith('data: ')) continue;
+    try {
+      const evt = JSON.parse(line.slice(6));
+      if (evt.type === 'outline') {
+        outlines.push(evt.data);
+        process.stdout.write(`  Outline ${outlines.length}: "${evt.data.title}" (${evt.data.type})\n`);
+      } else if (evt.type === 'done') {
+        doneOutlines = evt.outlines || outlines;
+      } else if (evt.type === 'error') {
+        throw new Error(`Outline generation error: ${evt.error}`);
+      } else if (evt.type === 'retry') {
+        console.log(`  Retrying (attempt ${evt.attempt}/${evt.maxAttempts})...`);
+        outlines = [];
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('Outline generation error')) throw e;
+      // Skip unparseable lines (heartbeats, etc.)
+    }
+  }
+
+  const result = doneOutlines || outlines;
+  if (result.length === 0) {
+    throw new Error('No outlines generated');
+  }
+
+  console.log(`  Generated ${result.length} outlines.`);
+  return result;
+}
+
+// ── Step 4: Generate content for each scene ──
+
+async function generateSceneContent(
+  baseUrl: string,
+  outline: SceneOutline,
+  allOutlines: SceneOutline[],
+  stageId: string,
+  stageInfo: { name: string; description: string; language: string; style: string },
+  model?: string,
+): Promise<{ content: any; effectiveOutline: SceneOutline }> {
+  const resp = await apiJson<{
+    success: boolean;
+    content?: any;
+    effectiveOutline?: SceneOutline;
+    error?: string;
+  }>(`${baseUrl}/api/generate/scene-content`, {
+    method: 'POST',
+    headers: getModelHeaders(model),
+    body: JSON.stringify({
+      outline,
+      allOutlines,
+      stageInfo,
+      stageId,
+    }),
+  });
+
+  if (!resp.success || !resp.content) {
+    throw new Error(`Content generation failed for "${outline.title}": ${resp.error || 'unknown error'}`);
+  }
+
+  return { content: resp.content, effectiveOutline: resp.effectiveOutline || outline };
+}
+
+// ── Step 5: Generate actions for each scene ──
+
+async function generateSceneActions(
+  baseUrl: string,
+  outline: SceneOutline,
+  allOutlines: SceneOutline[],
+  content: any,
+  stageId: string,
+  previousSpeeches: string[],
+  model?: string,
+): Promise<{ scene: any; previousSpeeches: string[] }> {
+  const resp = await apiJson<{
+    success: boolean;
+    scene?: any;
+    previousSpeeches?: string[];
+    error?: string;
+  }>(`${baseUrl}/api/generate/scene-actions`, {
+    method: 'POST',
+    headers: getModelHeaders(model),
+    body: JSON.stringify({
+      outline,
+      allOutlines,
+      content,
+      stageId,
+      previousSpeeches,
+    }),
+  });
+
+  if (!resp.success || !resp.scene) {
+    throw new Error(`Action generation failed for "${outline.title}": ${resp.error || 'unknown error'}`);
+  }
+
+  return {
+    scene: resp.scene,
+    previousSpeeches: resp.previousSpeeches || [],
+  };
+}
+
+// ── Main ──
+
+async function main() {
+  const args = parseArgs();
+
+  console.log('=== Classroom Generation Script ===');
+  console.log(`  Topic: ${args.topic}`);
+  console.log(`  Server: ${args.baseUrl}`);
+  console.log(`  Model: ${args.model || process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-latest'}`);
+
+  const startTime = Date.now();
+
+  // Step 1: Authenticate
+  await authenticate(args.baseUrl, args.password);
+
+  // Step 2: Enrich competencies (optional)
+  let enrichedText = '';
+  let competencyCodes: string[] = [];
+  let subjectCodes: string[] = [];
+
+  if (args.competencies) {
+    competencyCodes = args.competencies.split(',').map((c) => c.trim());
+    const enriched = await enrichCompetencies(args.baseUrl, competencyCodes);
+    enrichedText = enriched.enrichedText;
+    subjectCodes = enriched.subjectCodes;
+  } else {
+    console.log('\n[2/6] Skipping competency enrichment (no --competencies provided).');
+  }
+
+  // Build full requirement text
+  const fullRequirement = args.requirement + enrichedText;
+
+  // Step 3: Generate outlines
+  const outlines = await generateOutlines(args.baseUrl, fullRequirement, 'en-US', args.model);
+
+  // Create stage
+  const stageId = nanoid(10);
+  const stage = {
+    id: stageId,
+    name: args.topic,
+    description: '',
+    language: 'en-US',
+    style: 'professional',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  const stageInfo = {
+    name: stage.name,
+    description: stage.description,
+    language: stage.language,
+    style: stage.style,
+  };
+
+  // Step 4: Generate content for each scene
+  console.log(`\n[4/6] Generating scene content (${outlines.length} scenes)...`);
+  const sceneContents: Array<{ content: any; effectiveOutline: SceneOutline }> = [];
+  const errors: string[] = [];
+
+  for (let i = 0; i < outlines.length; i++) {
+    const outline = outlines[i];
+    process.stdout.write(`  [${i + 1}/${outlines.length}] "${outline.title}" (${outline.type})... `);
+    try {
+      const result = await generateSceneContent(
+        args.baseUrl,
+        outline,
+        outlines,
+        stageId,
+        stageInfo,
+        args.model,
+      );
+      sceneContents.push(result);
+      console.log('done');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`FAILED: ${msg}`);
+      errors.push(`Content[${outline.title}]: ${msg}`);
+      // Push null placeholder so indices stay aligned
+      sceneContents.push({ content: null, effectiveOutline: outline });
+    }
+  }
+
+  // Step 5: Generate actions for each scene
+  console.log(`\n[5/6] Generating scene actions...`);
+  const scenes: any[] = [];
+  let previousSpeeches: string[] = [];
+
+  for (let i = 0; i < sceneContents.length; i++) {
+    const { content, effectiveOutline } = sceneContents[i];
+    if (!content) {
+      console.log(`  [${i + 1}/${sceneContents.length}] Skipping "${effectiveOutline.title}" (no content).`);
+      continue;
+    }
+
+    process.stdout.write(`  [${i + 1}/${sceneContents.length}] "${effectiveOutline.title}"... `);
+    try {
+      const result = await generateSceneActions(
+        args.baseUrl,
+        effectiveOutline,
+        outlines,
+        content,
+        stageId,
+        previousSpeeches,
+        args.model,
+      );
+      scenes.push(result.scene);
+      previousSpeeches = [...previousSpeeches, ...result.previousSpeeches];
+      console.log(`done (${result.scene.actions?.length ?? 0} actions)`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`FAILED: ${msg}`);
+      errors.push(`Actions[${effectiveOutline.title}]: ${msg}`);
+    }
+  }
+
+  if (scenes.length === 0) {
+    console.error('\nNo scenes were generated successfully. Aborting.');
+    process.exit(1);
+  }
+
+  // Step 6: Assemble and save to Neon
+  console.log(`\n[6/6] Saving classroom to Neon (${scenes.length} scenes)...`);
+
+  const classroomId = nanoid(10);
+  const classroomData = {
+    stage,
+    scenes,
+    outlines,
+    generatedAt: new Date().toISOString(),
+    generationArgs: {
+      topic: args.topic,
+      competencyCodes,
+      model: args.model || process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-latest',
+    },
+  };
+
+  try {
+    await saveClassroom({
+      id: classroomId,
+      title: args.topic,
+      competencyCodes,
+      subjectCodes,
+      data: classroomData,
+      model: args.model || process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-latest',
+      isPilot: true,
+    });
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const classroomUrl = `${args.baseUrl}/classroom/${classroomId}`;
+
+    console.log(`\n${'='.repeat(60)}`);
+    console.log('Classroom generated successfully!');
+    console.log(`  ID:     ${classroomId}`);
+    console.log(`  URL:    ${classroomUrl}`);
+    console.log(`  Scenes: ${scenes.length}/${outlines.length}`);
+    console.log(`  Time:   ${elapsed}s`);
+    if (errors.length > 0) {
+      console.log(`  Errors: ${errors.length}`);
+      errors.forEach((e) => console.log(`    - ${e}`));
+    }
+    console.log('='.repeat(60));
+  } catch (err) {
+    console.error('\nFailed to save classroom to Neon:', err instanceof Error ? err.message : err);
+    // Still output the data so it's not lost
+    console.log('\nClassroom data (not saved):');
+    console.log(JSON.stringify(classroomData, null, 2).slice(0, 2000) + '...');
+    process.exit(1);
+  }
+}
+
+main().catch((err) => {
+  console.error('\nFatal error:', err instanceof Error ? err.message : err);
+  process.exit(1);
+});
