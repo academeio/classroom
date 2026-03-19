@@ -1,15 +1,25 @@
 import { after, type NextRequest } from 'next/server';
 import { nanoid } from 'nanoid';
-import { apiError, apiSuccess } from '@/lib/server/api-response';
+import { apiError, apiSuccess, API_ERROR_CODES } from '@/lib/server/api-response';
 import { type GenerateClassroomInput } from '@/lib/server/classroom-generation';
 import { runClassroomGenerationJob } from '@/lib/server/classroom-job-runner';
 import { createClassroomGenerationJob } from '@/lib/server/classroom-job-store';
 import { buildRequestOrigin } from '@/lib/server/classroom-storage';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
   try {
+    const { allowed } = checkRateLimit('generation', 10, 60 * 60 * 1000); // 10/hour
+    if (!allowed) {
+      return apiError(
+        API_ERROR_CODES.RATE_LIMITED,
+        429,
+        'Generation rate limit exceeded. Please try again later.',
+      );
+    }
+
     const rawBody = (await req.json()) as Partial<GenerateClassroomInput>;
     const body: GenerateClassroomInput = {
       requirement: rawBody.requirement || '',

@@ -7,6 +7,7 @@ import {
   persistClassroom,
   readClassroom,
 } from '@/lib/server/classroom-storage';
+import { getClassroom as getNeonClassroom } from '@/lib/storage/neon-classroom-store';
 
 export async function POST(request: NextRequest) {
   try {
@@ -53,7 +54,20 @@ export async function GET(request: NextRequest) {
       return apiError(API_ERROR_CODES.INVALID_REQUEST, 400, 'Invalid classroom id');
     }
 
-    const classroom = await readClassroom(id);
+    // Try local file storage first, then fall back to Neon for shareable URLs
+    let classroom = await readClassroom(id);
+
+    if (!classroom) {
+      try {
+        const neonRecord = await getNeonClassroom(id);
+        if (neonRecord) {
+          classroom = neonRecord.classroom_data as typeof classroom;
+        }
+      } catch {
+        // Neon unavailable — fall through to 404
+      }
+    }
+
     if (!classroom) {
       return apiError(API_ERROR_CODES.INVALID_REQUEST, 404, 'Classroom not found');
     }
