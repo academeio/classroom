@@ -830,7 +830,7 @@ export function getTTSProvider(providerId: TTSProviderId): TTSProviderConfig | u
  */
 export const DEFAULT_TTS_VOICES: Record<TTSProviderId, string> = {
   'openai-tts': 'alloy',
-  'azure-tts': 'zh-CN-XiaoxiaoNeural',
+  'azure-tts': 'en-IN-NeerjaNeural',
   'glm-tts': 'tongtong',
   'qwen-tts': 'Cherry',
   'browser-native-tts': 'default',
