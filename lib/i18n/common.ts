@@ -6,8 +6,8 @@ export const commonZhCN = {
     loading: '加载中...',
   },
   home: {
-    slogan: 'Generative Learning in Multi-Agent Interactive Classroom',
-    greeting: '嗨，',
+    slogan: 'AI-Powered Interactive Classrooms for Medical Education',
+    greeting: 'Hi, ',
   },
   toolbar: {
     languageHint: '课程将以此语言生成',
@@ -47,7 +47,7 @@ export const commonEnUS = {
     loading: 'Loading...',
   },
   home: {
-    slogan: 'Generative Learning in Multi-Agent Interactive Classroom',
+    slogan: 'AI-Powered Interactive Classrooms for Medical Education',
     greeting: 'Hi, ',
   },
   toolbar: {
