@@ -256,7 +256,7 @@ const getDefaultProvidersConfig = (): ProvidersConfig => {
 const getDefaultAudioConfig = () => ({
   ttsProviderId: 'azure-tts' as TTSProviderId,
   ttsVoice: 'en-IN-NeerjaNeural',
-  ttsSpeed: 1.5,
+  ttsSpeed: 1.0,
   asrProviderId: 'browser-native' as ASRProviderId,
   asrLanguage: 'en',
   ttsProvidersConfig: {
