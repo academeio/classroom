@@ -2,7 +2,7 @@ import { type NextRequest } from 'next/server';
 import { apiSuccess, apiError } from '@/lib/server/api-response';
 import { getDb } from '@/lib/neon/client';
 
-const MAX_CODES = 8;
+const MAX_CODES = 15;
 
 export async function POST(request: NextRequest) {
   try {
