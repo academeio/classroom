@@ -1089,7 +1089,7 @@ export function getProviderForPurpose(purpose: ProviderPurpose): {
   if (purpose === 'generation') {
     return {
       provider: 'anthropic',
-      model: process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-20250514',
+      model: process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-latest',
     };
   }
 
@@ -1103,7 +1103,7 @@ export function getProviderForPurpose(purpose: ProviderPurpose): {
 
   return {
     provider: 'anthropic',
-    model: process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-20250514',
+    model: process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-latest',
   };
 }
 
