@@ -456,7 +456,7 @@ async function main() {
 
   const ttsProviderId = 'azure-tts' as const;
   const ttsVoice = 'en-IN-NeerjaNeural';
-  const ttsSpeed = 2.0;
+  const ttsSpeed = 1.0;
   const ttsApiKey = resolveTTSApiKey(ttsProviderId);
   const ttsBaseUrl = resolveTTSBaseUrl(ttsProviderId);
 
