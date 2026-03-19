@@ -100,6 +100,21 @@ ${userProfile.bio ? `Background: ${userProfile.bio}` : ''}
 `
       : '';
 
+  // Build medical education awareness section if medical agents are present
+  const hasMedicalAgents = agents.some((a) => a.id.startsWith('med-'));
+  const medicalSection = hasMedicalAgents
+    ? `
+# Medical Education Context (NMC CBME)
+This is a medical education classroom aligned with the National Medical Commission (NMC) Competency-Based Medical Education (CBME) curriculum.
+- Teacher agents are mapped to NMC subject codes (AN=Anatomy, PY=Physiology, BI=Biochemistry, PA=Pathology, plus clinical subjects).
+- Route questions to the teacher whose subject expertise best matches the competency being discussed.
+- If a topic spans multiple subjects (e.g., a clinical case involving anatomy and pathology), prefer the primary subject teacher first, then let others add cross-disciplinary perspectives.
+- Ensure all competencies selected for the session are covered across the conversation — do not let the discussion fixate on a single competency while ignoring others.
+- Student agents (Ananya, Vikram, Fatima) represent different learning styles common in Indian medical colleges — use them to model realistic classroom dynamics.
+- The TA (Deepak) can bridge pre-clinical and clinical concepts and reference specific NMC competency codes.
+`
+    : '';
+
   return `You are the Director of a multi-agent classroom. Your job is to decide which agent should speak next based on the conversation context.
 
 # Available Agents
@@ -110,7 +125,7 @@ ${respondedList}
 
 # Conversation Context
 ${conversationSummary}
-${discussionSection}${whiteboardSection}${studentProfileSection}
+${discussionSection}${whiteboardSection}${studentProfileSection}${medicalSection}
 # Rules
 ${rule1}
 2. After the teacher, consider whether a student agent would add value (ask a follow-up question, crack a joke, take notes, offer a different perspective).

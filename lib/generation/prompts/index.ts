@@ -9,6 +9,7 @@
 
 // Types
 export type { PromptId, SnippetId, LoadedPrompt } from './types';
+export type { MedicalCompetency } from './medical-context';
 
 // Loader functions
 export {
@@ -18,6 +19,9 @@ export {
   interpolateVariables,
   clearPromptCache,
 } from './loader';
+
+// Medical education context
+export { buildMedicalContext, buildLightMedicalContext } from './medical-context';
 
 // Prompt IDs constant
 export const PROMPT_IDS = {

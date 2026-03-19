@@ -1,3 +1,5 @@
+{{medicalContext}}
+
 Title: {{title}}
 Concept: {{conceptName}}
 Description: {{description}}

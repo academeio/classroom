@@ -1,5 +1,7 @@
 Please perform scientific modeling for the following concept.
 
+{{medicalContext}}
+
 ---
 
 ## Concept Information
