@@ -465,7 +465,7 @@ export class PlaybackEngine {
         };
 
         this.audioPlayer
-          .play(speechAction.audioId || '')
+          .play(speechAction.audioId || speechAction.id || '')
           .then((audioStarted) => {
             if (!audioStarted) {
               // No pre-generated audio — try server-side TTS or browser-native
