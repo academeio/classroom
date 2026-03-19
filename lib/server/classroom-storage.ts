@@ -3,8 +3,10 @@ import path from 'path';
 import type { NextRequest } from 'next/server';
 import type { Scene, Stage } from '@/lib/types/stage';
 
-export const CLASSROOMS_DIR = path.join(process.cwd(), 'data', 'classrooms');
-export const CLASSROOM_JOBS_DIR = path.join(process.cwd(), 'data', 'classroom-jobs');
+// Use /tmp on Vercel (serverless has read-only filesystem except /tmp)
+const dataRoot = process.env.VERCEL ? '/tmp' : path.join(process.cwd(), 'data');
+export const CLASSROOMS_DIR = path.join(dataRoot, 'classrooms');
+export const CLASSROOM_JOBS_DIR = path.join(dataRoot, 'classroom-jobs');
 
 async function ensureDir(dir: string) {
   await fs.mkdir(dir, { recursive: true });
