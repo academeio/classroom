@@ -27,7 +27,9 @@ export interface MedicalCompetency {
  */
 export function buildMedicalContext(competencies: MedicalCompetency[]): string {
   if (competencies.length === 0) {
-    return `You are generating content for medical education in India, aligned with the National Medical Commission (NMC) Competency-Based Medical Education (CBME) curriculum. Use clinical examples relevant to Indian healthcare settings. Maintain strict medical accuracy.`;
+    return `You are generating content for medical education in India, aligned with the National Medical Commission (NMC) Competency-Based Medical Education (CBME) curriculum. Use clinical examples relevant to Indian healthcare settings. Maintain strict medical accuracy.
+
+Medical slides should be visually rich — request AI-generated images (via mediaGenerations) for anatomical diagrams, flowcharts, pathway diagrams, and clinical schematics. Use "medical illustration style, labeled diagram, educational" in image prompts. Aim for at least one visual element per slide.`;
   }
 
   const competencyList = competencies
@@ -88,6 +90,24 @@ ${competencyList}
 ## Domain-Specific Teaching Guidance
 ${domainGuidance}
 ${methodsSection}
+## Medical Diagram & Visual Guidance
+- **IMPORTANT**: Medical slides should be visually rich. Request AI-generated images (via mediaGenerations) for:
+  - Anatomical diagrams with clearly labeled structures
+  - Flowcharts showing pathogenesis, metabolic pathways, or disease progression
+  - Comparison diagrams (normal vs pathological, before vs after)
+  - Schematic diagrams of physiological mechanisms (feedback loops, nerve pathways, blood flow)
+  - Clinical images showing signs/symptoms (use schematic/diagrammatic style, not photorealistic)
+- Use **charts** for: lab reference ranges, drug dosage tables, growth charts, statistical data
+- Use **tables** for: differential diagnosis, drug comparisons, classification systems
+- Use **LaTeX** for: chemical formulas, dosage calculations, Henderson-Hasselbalch equation
+- Use **shapes + lines** for: simple flowcharts, pathway diagrams, anatomical outlines
+- Aim for at least one visual element (image, chart, or diagram) per slide — medical education is highly visual
+- Image prompts should specify "medical illustration style, labeled diagram, educational, clean white background" for clarity
+- For anatomy: "anatomical diagram showing [structure] with labeled parts, medical textbook illustration style"
+- For pathology: "schematic diagram of [disease process], showing [normal vs pathological], educational medical illustration"
+- For physiology: "flowchart diagram of [mechanism/pathway], with arrows showing [flow/regulation], medical education style"
+- For biochemistry: "metabolic pathway diagram showing [pathway name], with enzymes, substrates, and products labeled"
+
 ## Requirements
 - Every scene MUST map to at least one of the competencies listed above
 - Use clinical examples relevant to Indian healthcare settings (Indian hospitals, common presentations in India)
