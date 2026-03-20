@@ -384,6 +384,53 @@ async function main() {
     style: stage.style,
   };
 
+  // Step 3b: Generate images for outlines that have mediaGenerations
+  const mediaRequests = outlines.flatMap(
+    (o: any) => (o.mediaGenerations || []).filter((m: any) => m.type === 'image'),
+  );
+
+  const generatedImages: Record<string, string> = {}; // elementId → base64 data URL
+
+  if (mediaRequests.length > 0) {
+    console.log(`\n[3b/7] Generating ${mediaRequests.length} medical diagram(s)...`);
+    for (let i = 0; i < mediaRequests.length; i++) {
+      const req = mediaRequests[i];
+      process.stdout.write(`  [${i + 1}/${mediaRequests.length}] "${req.elementId}" ... `);
+      try {
+        const resp = await apiFetch(`${args.baseUrl}/api/generate/image`, {
+          method: 'POST',
+          headers: {
+            ...getModelHeaders(args.model),
+            'x-image-provider': 'nano-banana',
+          },
+          body: JSON.stringify({
+            prompt: req.prompt,
+            aspectRatio: req.aspectRatio || '16:9',
+            style: req.style,
+          }),
+        });
+        if (resp.ok) {
+          const imgData = await resp.json();
+          if (imgData.success && imgData.result?.base64) {
+            const mimeType = imgData.result.mimeType || 'image/png';
+            generatedImages[req.elementId] = `data:${mimeType};base64,${imgData.result.base64}`;
+            console.log('done');
+          } else {
+            console.log(`skipped: ${imgData.error || 'no result'}`);
+          }
+        } else {
+          const errBody = await resp.text().catch(() => '');
+          console.log(`failed (${resp.status}): ${errBody.substring(0, 100)}`);
+        }
+      } catch (err) {
+        console.log(`error: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    console.log(`  Generated ${Object.keys(generatedImages).length}/${mediaRequests.length} images.`);
+  } else {
+    console.log('\n[3b/7] No image generation requests in outlines.');
+  }
+
   // Step 4: Generate content for each scene
   console.log(`\n[4/7] Generating scene content (${outlines.length} scenes)...`);
   const sceneContents: Array<{ content: any; effectiveOutline: SceneOutline }> = [];
@@ -499,6 +546,21 @@ async function main() {
   }
 
   console.log(`  Pre-rendered ${ttsCount} audio files (${ttsErrors} errors).`);
+
+  // Replace gen_img_* placeholders with actual base64 data URLs in scene elements
+  if (Object.keys(generatedImages).length > 0) {
+    let replaced = 0;
+    for (const scene of scenes) {
+      const elements = scene.content?.canvas?.elements || scene.elements || [];
+      for (const el of elements) {
+        if (el.type === 'image' && el.src && generatedImages[el.src]) {
+          el.src = generatedImages[el.src];
+          replaced++;
+        }
+      }
+    }
+    console.log(`  Replaced ${replaced} image placeholders with generated images.`);
+  }
 
   // Step 7: Assemble and save to Neon
   console.log(`\n[7/7] Saving classroom to Neon (${scenes.length} scenes)...`);
