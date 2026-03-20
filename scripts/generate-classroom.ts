@@ -25,7 +25,7 @@ config({ path: resolve(__dirname, '..', '.env.local') });
 
 import { nanoid } from 'nanoid';
 import { saveClassroom } from '../lib/storage/neon-classroom-store';
-import { saveAudio } from '../lib/storage/neon-audio-store';
+import { saveAudio, getClassroomAudio } from '../lib/storage/neon-audio-store';
 import { generateTTS } from '../lib/audio/tts-providers';
 import { resolveTTSApiKey, resolveTTSBaseUrl } from '../lib/server/provider-config';
 
@@ -528,17 +528,60 @@ async function main() {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     const classroomUrl = `${args.baseUrl}/classroom/${classroomId}`;
 
+    // Quality gate: verify classroom and audio are ready
+    console.log('\n[QA] Running quality checks...');
+
+    // Count speech actions
+    const totalSpeechActions = scenes.reduce(
+      (sum: number, s: any) => sum + (s.actions || []).filter((a: any) => a.type === 'speech' && a.id).length,
+      0,
+    );
+
+    // Count pre-rendered audio
+    const audioRows = await getClassroomAudio(classroomId);
+    const preRenderedCount = audioRows.length;
+    const audioCoverage = totalSpeechActions > 0 ? Math.round((preRenderedCount / totalSpeechActions) * 100) : 0;
+
+    const qaPass = audioCoverage >= 90; // Allow 10% tolerance for edge cases
+
+    console.log(`  Speech actions: ${totalSpeechActions}`);
+    console.log(`  Pre-rendered audio: ${preRenderedCount}`);
+    console.log(`  Audio coverage: ${audioCoverage}%`);
+    console.log(`  QA status: ${qaPass ? 'PASS' : 'FAIL — audio not fully pre-rendered'}`);
+
+    if (!qaPass && ttsErrors === 0) {
+      // Audio IDs may not match — log for debugging
+      const speechIds = scenes.flatMap((s: any) =>
+        (s.actions || []).filter((a: any) => a.type === 'speech').map((a: any) => a.id),
+      );
+      const audioIds = new Set(audioRows.map((a: any) => a.audioId));
+      const missing = speechIds.filter((id: string) => !audioIds.has(id));
+      if (missing.length > 0) {
+        console.log(`  Missing audio IDs (first 5): ${missing.slice(0, 5).join(', ')}`);
+      }
+    }
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const classroomUrl = `${args.baseUrl}/classroom/${classroomId}`;
+
     console.log(`\n${'='.repeat(60)}`);
-    console.log('Classroom generated successfully!');
+    console.log(`Classroom generated ${qaPass ? 'successfully' : 'with warnings'}!`);
     console.log(`  ID:     ${classroomId}`);
     console.log(`  URL:    ${classroomUrl}`);
     console.log(`  Scenes: ${scenes.length}/${outlines.length}`);
+    console.log(`  Audio:  ${preRenderedCount}/${totalSpeechActions} (${audioCoverage}%)`);
     console.log(`  Time:   ${elapsed}s`);
+    console.log(`  Status: ${qaPass ? 'READY' : 'NEEDS ATTENTION — run prerender-tts.ts'}`);
     if (errors.length > 0) {
       console.log(`  Errors: ${errors.length}`);
       errors.forEach((e) => console.log(`    - ${e}`));
     }
     console.log('='.repeat(60));
+
+    // Exit with code 2 if QA failed (distinguishes from fatal error code 1)
+    if (!qaPass) {
+      process.exit(2);
+    }
   } catch (err) {
     console.error('\nFailed to save classroom to Neon:', err instanceof Error ? err.message : err);
     // Still output the data so it's not lost
