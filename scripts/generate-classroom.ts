@@ -121,7 +121,7 @@ function getModelHeaders(model?: string): Record<string, string> {
   const modelString = model || process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-latest';
   return {
     'x-model': modelString,
-    'x-image-generation-enabled': 'false',
+    'x-image-generation-enabled': 'true',
     'x-video-generation-enabled': 'false',
   };
 }
