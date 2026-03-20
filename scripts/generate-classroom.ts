@@ -26,6 +26,7 @@ config({ path: resolve(__dirname, '..', '.env.local') });
 import { nanoid } from 'nanoid';
 import { saveClassroom } from '../lib/storage/neon-classroom-store';
 import { saveAudio, getClassroomAudio } from '../lib/storage/neon-audio-store';
+import { saveImage } from '../lib/storage/neon-image-store';
 import { generateTTS } from '../lib/audio/tts-providers';
 import { resolveTTSApiKey, resolveTTSBaseUrl } from '../lib/server/provider-config';
 
@@ -389,7 +390,7 @@ async function main() {
     (o: any) => (o.mediaGenerations || []).filter((m: any) => m.type === 'image'),
   );
 
-  const generatedImages: Record<string, string> = {}; // elementId → base64 data URL
+  const generatedImages: Record<string, string> = {}; // elementId → serving URL
 
   if (mediaRequests.length > 0) {
     console.log(`\n[3b/7] Generating ${mediaRequests.length} medical diagram(s)...`);
@@ -413,8 +414,12 @@ async function main() {
           const imgData = await resp.json();
           if (imgData.success && imgData.result?.base64) {
             const mimeType = imgData.result.mimeType || 'image/png';
-            generatedImages[req.elementId] = `data:${mimeType};base64,${imgData.result.base64}`;
-            console.log('done');
+            // Store image in Neon separately (not inline in classroom JSON)
+            await saveImage(req.elementId, stageId, imgData.result.base64, mimeType);
+            // Reference by API URL instead of inline base64
+            generatedImages[req.elementId] = `${args.baseUrl}/api/classroom-images?imageId=${req.elementId}`;
+            const sizeKB = Math.round(imgData.result.base64.length / 1024);
+            console.log(`done (${sizeKB}KB → stored in Neon)`);
           } else {
             console.log(`skipped: ${imgData.error || 'no result'}`);
           }

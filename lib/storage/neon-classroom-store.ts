@@ -24,8 +24,8 @@ export async function saveClassroom(classroom: {
   const sql = getDb();
   const dataStr = JSON.stringify(classroom.data);
 
-  if (dataStr.length > 1_000_000) {
-    throw new Error('Classroom data exceeds 1MB limit');
+  if (dataStr.length > 5_000_000) {
+    throw new Error('Classroom data exceeds 5MB limit');
   }
 
   await sql`
