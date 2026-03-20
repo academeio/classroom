@@ -27,6 +27,7 @@ import { nanoid } from 'nanoid';
 import { saveClassroom } from '../lib/storage/neon-classroom-store';
 import { saveAudio, getClassroomAudio } from '../lib/storage/neon-audio-store';
 import { saveImage } from '../lib/storage/neon-image-store';
+import sharp from 'sharp';
 import { generateTTS } from '../lib/audio/tts-providers';
 import { resolveTTSApiKey, resolveTTSBaseUrl } from '../lib/server/provider-config';
 
@@ -413,13 +414,19 @@ async function main() {
         if (resp.ok) {
           const imgData = await resp.json();
           if (imgData.success && imgData.result?.base64) {
-            const mimeType = imgData.result.mimeType || 'image/png';
-            // Store image in Neon separately (not inline in classroom JSON)
-            await saveImage(req.elementId, stageId, imgData.result.base64, mimeType);
-            // Reference by API URL instead of inline base64
+            // Compress: resize to max 800px wide, convert to JPEG quality 80
+            const rawBuffer = Buffer.from(imgData.result.base64, 'base64');
+            const compressed = await sharp(rawBuffer)
+              .resize(800, null, { withoutEnlargement: true })
+              .jpeg({ quality: 80 })
+              .toBuffer();
+            const compressedBase64 = compressed.toString('base64');
+            const originalKB = Math.round(rawBuffer.length / 1024);
+            const compressedKB = Math.round(compressed.length / 1024);
+
+            await saveImage(req.elementId, stageId, compressedBase64, 'image/jpeg');
             generatedImages[req.elementId] = `${args.baseUrl}/api/classroom-images?imageId=${req.elementId}`;
-            const sizeKB = Math.round(imgData.result.base64.length / 1024);
-            console.log(`done (${sizeKB}KB → stored in Neon)`);
+            console.log(`done (${originalKB}KB → ${compressedKB}KB compressed)`);
           } else {
             console.log(`skipped: ${imgData.error || 'no result'}`);
           }
