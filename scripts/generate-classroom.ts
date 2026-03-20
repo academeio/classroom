@@ -525,9 +525,6 @@ async function main() {
       isPilot: true,
     });
 
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    const classroomUrl = `${args.baseUrl}/classroom/${classroomId}`;
-
     // Quality gate: verify classroom and audio are ready
     console.log('\n[QA] Running quality checks...');
 
