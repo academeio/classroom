@@ -21,7 +21,15 @@ import { saveAudio, getClassroomAudio } from '../lib/storage/neon-audio-store';
 
 const DEFAULT_PROVIDER = 'azure-tts';
 const DEFAULT_VOICE = 'en-IN-NeerjaNeural';
-const DEFAULT_SPEED = 1.5;
+const DEFAULT_SPEED = 1.0;
+
+// Voice rotation for variety — cycles through these for consecutive speech actions
+const VOICE_POOL = [
+  'en-IN-NeerjaNeural',    // Female — clear, professional
+  'en-IN-PrabhatNeural',   // Male — warm, authoritative
+  'en-IN-AaravNeural',     // Male — young, energetic
+  'en-IN-KavyaNeural',     // Female — professional
+];
 
 // ── Args ──
 

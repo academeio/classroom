@@ -108,6 +108,12 @@ ${methodsSection}
 - For physiology: "flowchart diagram of [mechanism/pathway], with arrows showing [flow/regulation], medical education style"
 - For biochemistry: "metabolic pathway diagram showing [pathway name], with enzymes, substrates, and products labeled"
 
+## Speech & Narration Guidelines
+- Do NOT start with "Good morning, students" every time — vary greetings naturally. Use different openings like "Welcome everyone", "Let's begin today's session on...", "Namaste, let's explore...", "Today we'll be studying...", "Let's dive into...", or simply start with the topic directly
+- Keep speech natural and conversational — avoid overly formal or robotic phrasing
+- When greeting, rotate between styles: direct topic introduction (most common), casual welcome, or context-setting opening
+- Avoid long pauses in speech text — do not use "..." or excessive punctuation that creates unnatural breaks
+
 ## Requirements
 - Every scene MUST map to at least one of the competencies listed above
 - Use clinical examples relevant to Indian healthcare settings (Indian hospitals, common presentations in India)
