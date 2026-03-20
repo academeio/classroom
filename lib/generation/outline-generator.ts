@@ -93,6 +93,7 @@ export async function generateSceneOutlinesFromRequirements(
   }
 
   // Use simplified prompt variables
+  // medicalContext is auto-injected by buildPrompt if not provided
   const prompts = buildPrompt(PROMPT_IDS.REQUIREMENTS_TO_OUTLINES, {
     // New simplified variables
     requirement: requirements.requirement,

@@ -117,6 +117,16 @@ export function buildPrompt(
   const prompt = loadPrompt(promptId);
   if (!prompt) return null;
 
+  // Auto-inject medicalContext if not provided and template uses it
+  if (variables.medicalContext === undefined) {
+    try {
+      const { buildMedicalContext } = require('./medical-context');
+      variables = { ...variables, medicalContext: buildMedicalContext([]) };
+    } catch {
+      // medical-context module not available — leave placeholder as-is
+    }
+  }
+
   return {
     system: interpolateVariables(prompt.systemPrompt, variables),
     user: interpolateVariables(prompt.userPromptTemplate, variables),
