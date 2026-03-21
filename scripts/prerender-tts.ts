@@ -16,6 +16,7 @@ config({ path: resolve(__dirname, '..', '.env.local') });
 
 import { neon } from '@neondatabase/serverless';
 import { saveAudio, getClassroomAudio } from '../lib/storage/neon-audio-store';
+import { SARVAM_VOICE_MAP, DEFAULT_SARVAM_VOICE } from '../lib/orchestration/registry/medical-agents';
 
 // ── Config ──
 
@@ -46,43 +47,73 @@ function parseArgs() {
   return parsed;
 }
 
-// ── TTS Generation via API ──
+// ── TTS Generation via Sarvam AI ──
 
-async function generateTTSViaAPI(
-  baseUrl: string,
+async function generateTTSViaSarvam(
   text: string,
-  audioId: string,
-  providerId: string,
   voice: string,
-  speed: number,
-  cookie: string,
+  pace: number = 1.0,
 ): Promise<{ base64: string; format: string }> {
-  const resp = await fetch(`${baseUrl}/api/generate/tts`, {
+  const apiKey = process.env.SARVAM_API_KEY;
+  if (!apiKey) throw new Error('SARVAM_API_KEY not set in .env.local');
+
+  // Sarvam limit: 2500 chars. Truncate if needed.
+  const truncatedText = text.length > 2400 ? text.substring(0, 2400) + '.' : text;
+
+  const resp = await fetch('https://api.sarvam.ai/text-to-speech', {
     method: 'POST',
     headers: {
+      'api-subscription-key': apiKey,
       'Content-Type': 'application/json',
-      Cookie: cookie,
     },
     body: JSON.stringify({
-      text,
-      audioId,
-      ttsProviderId: providerId,
-      ttsVoice: voice,
-      ttsSpeed: speed,
+      text: truncatedText,
+      target_language_code: 'en-IN',
+      model: 'bulbul:v3',
+      speaker: voice,
+      pace,
+      output_audio_codec: 'mp3',
     }),
   });
 
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
-    throw new Error(`TTS API ${resp.status}: ${body}`);
+    throw new Error(`Sarvam API ${resp.status}: ${body}`);
   }
 
   const data = await resp.json();
-  if (!data.success || !data.base64) {
-    throw new Error(`TTS API error: ${data.error || 'no audio returned'}`);
+  if (!data.audios || !data.audios[0]) {
+    throw new Error('Sarvam API returned no audio');
   }
 
-  return { base64: data.base64, format: data.format || 'mp3' };
+  return { base64: data.audios[0], format: 'mp3' };
+}
+
+// ── Agent voice lookup ──
+
+function getVoiceForAction(action: any): string {
+  // Try to match agentId to a Sarvam voice
+  const agentId = action.agentId || action.speakerId || '';
+  if (agentId && SARVAM_VOICE_MAP[agentId]) {
+    return SARVAM_VOICE_MAP[agentId];
+  }
+  // Try to match by agent name in the text or metadata
+  const agentName = action.agentName || action.speaker || '';
+  const nameMap: Record<string, string> = {
+    'Kavitha': 'kavitha', 'Dr. Kavitha': 'kavitha',
+    'Rajesh': 'rahul', 'Dr. Rajesh': 'rahul',
+    'Priya': 'priya', 'Dr. Priya': 'priya',
+    'Arun': 'amit', 'Dr. Arun': 'amit',
+    'Meera': 'shreya', 'Dr. Meera': 'shreya',
+    'Ananya': 'kavya',
+    'Vikram': 'varun',
+    'Fatima': 'simran',
+    'Deepak': 'dev',
+  };
+  for (const [name, voice] of Object.entries(nameMap)) {
+    if (agentName.includes(name)) return voice;
+  }
+  return DEFAULT_SARVAM_VOICE;
 }
 
 // ── Auth ──
@@ -103,14 +134,10 @@ async function authenticate(baseUrl: string, password: string): Promise<string> 
 
 async function main() {
   const args = parseArgs();
-  const baseUrl = args['base-url'] || 'https://classroom.cbme.in';
-  const password = args.password || process.env.GENERATION_PASSWORD || '';
-  const voice = args.voice || DEFAULT_VOICE;
   const speed = parseFloat(args.speed || String(DEFAULT_SPEED));
-  const providerId = args.provider || DEFAULT_PROVIDER;
 
-  if (!password) {
-    console.error('Need --password or GENERATION_PASSWORD env var');
+  if (!process.env.SARVAM_API_KEY) {
+    console.error('SARVAM_API_KEY not set in .env.local');
     process.exit(1);
   }
 
@@ -131,12 +158,7 @@ async function main() {
     process.exit(1);
   }
 
-  // Authenticate
-  console.log('\nAuthenticating...');
-  const cookie = await authenticate(baseUrl, password);
-  console.log('Authenticated.');
-
-  console.log(`\nTTS Config: provider=${providerId} voice=${voice} speed=${speed}x`);
+  console.log(`\nTTS: Sarvam AI Bulbul v3 | speed=${speed}x | per-agent voice mapping`);
 
   let totalRendered = 0;
   let totalSkipped = 0;
@@ -168,7 +190,7 @@ async function main() {
     console.log(`  Already pre-rendered: ${existingIds.size} audio files`);
 
     // Collect all speech actions
-    const speechActions: Array<{ sceneTitle: string; actionId: string; text: string }> = [];
+    const speechActions: Array<{ sceneTitle: string; actionId: string; text: string; agentId?: string; agentName?: string }> = [];
     for (const scene of scenes) {
       const actions = scene.actions || [];
       for (const action of actions) {
@@ -178,6 +200,8 @@ async function main() {
             sceneTitle: scene.title || 'Untitled',
             actionId: audioId,
             text: action.text,
+            agentId: action.agentId,
+            agentName: action.agentName || action.speaker,
           });
         }
       }
@@ -195,12 +219,11 @@ async function main() {
         continue;
       }
 
-      process.stdout.write(`  [${i + 1}/${speechActions.length}] "${sceneTitle}" (${text.length} chars)... `);
+      const agentVoice = getVoiceForAction(speechActions[i]);
+      process.stdout.write(`  [${i + 1}/${speechActions.length}] "${sceneTitle}" [${agentVoice}] (${text.length} chars)... `);
 
       try {
-        const { base64, format } = await generateTTSViaAPI(
-          baseUrl, text, actionId, providerId, voice, speed, cookie,
-        );
+        const { base64, format } = await generateTTSViaSarvam(text, agentVoice, speed);
         await saveAudio(actionId, classroomId, base64, format);
         totalRendered++;
         console.log(`done (${Math.round(base64.length / 1024)}KB)`);

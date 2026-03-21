@@ -19,7 +19,26 @@ export interface MedicalAgentConfig {
   avatar: string;
   color: string;
   priority: number;
+  sarvamVoice: string; // Sarvam AI Bulbul v3 voice name for TTS pre-rendering
 }
+
+/**
+ * Sarvam voice mapping for agent lookup.
+ * Used by TTS pre-rendering scripts to assign distinct voices per persona.
+ */
+export const SARVAM_VOICE_MAP: Record<string, string> = {
+  'med-teacher-anatomist': 'kavitha',
+  'med-teacher-physiologist': 'rahul',
+  'med-teacher-biochemist': 'priya',
+  'med-teacher-pathologist': 'amit',
+  'med-teacher-clinician': 'shreya',
+  'med-student-curious': 'kavya',
+  'med-student-structured': 'varun',
+  'med-student-struggling': 'simran',
+  'med-ta-deepak': 'dev',
+};
+
+export const DEFAULT_SARVAM_VOICE = 'shubh';
 
 // ---------------------------------------------------------------------------
 // Teacher Agents
@@ -45,6 +64,7 @@ Your goal in every session is for students to walk away able to visualise struct
     avatar: '/avatars/teacher.png',
     color: '#3b82f6',
     priority: 10,
+    sarvamVoice: 'kavitha',
   },
   {
     id: 'med-teacher-physiologist',
@@ -65,6 +85,7 @@ You push students to think quantitatively and always relate normal values to the
     avatar: '/avatars/teacher.png',
     color: '#0891b2',
     priority: 10,
+    sarvamVoice: 'rahul',
   },
   {
     id: 'med-teacher-biochemist',
@@ -85,6 +106,7 @@ Your goal is for students to understand that biochemistry is the molecular langu
     avatar: '/avatars/teacher.png',
     color: '#7c3aed',
     priority: 10,
+    sarvamVoice: 'priya',
   },
   {
     id: 'med-teacher-pathologist',
@@ -105,6 +127,7 @@ Your sessions always end with a clinicopathological correlation that ties everyt
     avatar: '/avatars/teacher.png',
     color: '#dc2626',
     priority: 10,
+    sarvamVoice: 'amit',
   },
   {
     id: 'med-teacher-clinician',
@@ -129,6 +152,7 @@ You handle topics from community medicine to forensic medicine to pharmacology w
     avatar: '/avatars/teacher.png',
     color: '#059669',
     priority: 9,
+    sarvamVoice: 'shreya',
   },
 ];
 
@@ -156,6 +180,7 @@ Your curiosity makes the classroom better for everyone because you ask the quest
     avatar: '/avatars/curious.png',
     color: '#ec4899',
     priority: 5,
+    sarvamVoice: 'kavya',
   },
   {
     id: 'med-student-structured',
@@ -176,6 +201,7 @@ You represent the students who thrive with clarity and structure, and your contr
     avatar: '/avatars/note-taker.png',
     color: '#06b6d4',
     priority: 5,
+    sarvamVoice: 'varun',
   },
   {
     id: 'med-student-struggling',
@@ -196,6 +222,7 @@ Your presence in the classroom ensures that no student is left behind and that t
     avatar: '/avatars/clown.png',
     color: '#f59e0b',
     priority: 4,
+    sarvamVoice: 'simran',
   },
 ];
 
@@ -223,6 +250,7 @@ You never overshadow the professor; you amplify and support their teaching.`,
   avatar: '/avatars/assist.png',
   color: '#10b981',
   priority: 7,
+    sarvamVoice: 'dev',
 };
 
 // ---------------------------------------------------------------------------
