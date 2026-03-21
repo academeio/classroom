@@ -24,12 +24,17 @@ const DEFAULT_PROVIDER = 'azure-tts';
 const DEFAULT_VOICE = 'en-IN-NeerjaNeural';
 const DEFAULT_SPEED = 1.0;
 
-// Voice rotation for variety — cycles through these for consecutive speech actions
+// Sarvam voice rotation — cycles through for variety when no agent match
 const VOICE_POOL = [
-  'en-IN-NeerjaNeural',    // Female — clear, professional
-  'en-IN-PrabhatNeural',   // Male — warm, authoritative
-  'en-IN-AaravNeural',     // Male — young, energetic
-  'en-IN-KavyaNeural',     // Female — professional
+  'kavitha',   // Female — clear, professional
+  'rahul',     // Male — warm, authoritative
+  'kavya',     // Female — young, friendly
+  'amit',      // Male — calm, mature
+  'shreya',    // Female — professional
+  'dev',       // Male — energetic
+  'priya',     // Female — methodical
+  'varun',     // Male — clear
+  'simran',    // Female — gentle
 ];
 
 // ── Args ──
