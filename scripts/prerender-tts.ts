@@ -91,6 +91,9 @@ async function generateTTSViaSarvam(
 
 // ── Agent voice lookup ──
 
+// Voice rotation counter — cycles through voices for variety
+let voiceRotationIndex = 0;
+
 function getVoiceForAction(action: any): string {
   // Try to match agentId to a Sarvam voice
   const agentId = action.agentId || action.speakerId || '';
@@ -113,7 +116,10 @@ function getVoiceForAction(action: any): string {
   for (const [name, voice] of Object.entries(nameMap)) {
     if (agentName.includes(name)) return voice;
   }
-  return DEFAULT_SARVAM_VOICE;
+  // No agent match — rotate through voice pool for variety
+  const voice = VOICE_POOL[voiceRotationIndex % VOICE_POOL.length];
+  voiceRotationIndex++;
+  return voice;
 }
 
 // ── Auth ──
@@ -227,9 +233,17 @@ async function main() {
         await saveAudio(actionId, classroomId, base64, format);
         totalRendered++;
         console.log(`done (${Math.round(base64.length / 1024)}KB)`);
+        // Rate limit: small delay between Sarvam API calls
+        await new Promise(r => setTimeout(r, 300));
       } catch (err) {
         totalErrors++;
-        console.log(`FAILED: ${err instanceof Error ? err.message : err}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.log(`FAILED: ${msg}`);
+        // If rate limited, wait longer and retry once
+        if (msg.includes('429') || msg.includes('rate') || msg.includes('Too Many')) {
+          console.log('    Rate limited — waiting 10s...');
+          await new Promise(r => setTimeout(r, 10000));
+        }
       }
     }
   }
