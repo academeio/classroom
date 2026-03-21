@@ -96,8 +96,18 @@ async function generateTTSViaSarvam(
 
 // ── Agent voice lookup ──
 
-// Voice rotation counter — cycles through voices for variety
-let voiceRotationIndex = 0;
+// Pick 2 random voices per classroom — one male, one female — and alternate
+const MALE_VOICES = ['rahul', 'amit', 'dev', 'varun'];
+const FEMALE_VOICES = ['kavitha', 'priya', 'kavya', 'shreya', 'simran'];
+
+let classroomVoicePair: [string, string] = ['kavitha', 'rahul']; // default, overridden per classroom
+let voiceAlternateIndex = 0;
+
+function pickVoicePair(): [string, string] {
+  const male = MALE_VOICES[Math.floor(Math.random() * MALE_VOICES.length)];
+  const female = FEMALE_VOICES[Math.floor(Math.random() * FEMALE_VOICES.length)];
+  return [female, male]; // female first (teacher), male second
+}
 
 function getVoiceForAction(action: any): string {
   // Try to match agentId to a Sarvam voice
@@ -121,9 +131,9 @@ function getVoiceForAction(action: any): string {
   for (const [name, voice] of Object.entries(nameMap)) {
     if (agentName.includes(name)) return voice;
   }
-  // No agent match — rotate through voice pool for variety
-  const voice = VOICE_POOL[voiceRotationIndex % VOICE_POOL.length];
-  voiceRotationIndex++;
+  // No agent match — alternate between the 2 selected voices for this classroom
+  const voice = classroomVoicePair[voiceAlternateIndex % 2];
+  voiceAlternateIndex++;
   return voice;
 }
 
@@ -176,8 +186,13 @@ async function main() {
   let totalErrors = 0;
 
   for (const classroomId of classroomIds) {
+    // Pick a random pair of voices (1 female + 1 male) for this classroom
+    classroomVoicePair = pickVoicePair();
+    voiceAlternateIndex = 0;
+
     console.log(`\n${'='.repeat(60)}`);
     console.log(`Processing: ${classroomId}`);
+    console.log(`  Voices: ${classroomVoicePair[0]} (F) + ${classroomVoicePair[1]} (M)`);
 
     // Fetch classroom data
     const rows = await sql`SELECT classroom_data, title FROM classrooms WHERE id = ${classroomId}`;
