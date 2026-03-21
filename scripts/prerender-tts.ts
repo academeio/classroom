@@ -184,6 +184,7 @@ async function main() {
   let totalRendered = 0;
   let totalSkipped = 0;
   let totalErrors = 0;
+  let totalChars = 0;
 
   for (const classroomId of classroomIds) {
     // Pick a random pair of voices (1 female + 1 male) for this classroom
@@ -252,6 +253,7 @@ async function main() {
         const { base64, format } = await generateTTSViaSarvam(text, agentVoice, speed);
         await saveAudio(actionId, classroomId, base64, format);
         totalRendered++;
+        totalChars += text.length;
         console.log(`done (${Math.round(base64.length / 1024)}KB)`);
         // Rate limit: small delay between Sarvam API calls
         await new Promise(r => setTimeout(r, 300));
@@ -268,9 +270,18 @@ async function main() {
     }
   }
 
+  // Log usage to Neon for cost tracking
+  if (totalRendered > 0) {
+    await sql`
+      INSERT INTO tts_usage_log (classroom_id, provider, total_chars, total_requests)
+      VALUES (${'batch'}, ${'sarvam-bulbul-v3'}, ${totalChars}, ${totalRendered})
+    `;
+  }
+
   console.log(`\n${'='.repeat(60)}`);
   console.log(`TTS Pre-rendering Complete`);
   console.log(`  Rendered: ${totalRendered}`);
+  console.log(`  Characters: ${totalChars.toLocaleString()}`);
   console.log(`  Skipped (existing): ${totalSkipped}`);
   console.log(`  Errors: ${totalErrors}`);
   console.log('='.repeat(60));
