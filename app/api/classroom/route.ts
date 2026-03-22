@@ -82,3 +82,36 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const { id, scenes, title } = await request.json();
+
+    if (!id) {
+      return apiError(API_ERROR_CODES.MISSING_REQUIRED_FIELD, 400, 'Missing required field: id');
+    }
+
+    if (!isValidClassroomId(id)) {
+      return apiError(API_ERROR_CODES.INVALID_REQUEST, 400, 'Invalid classroom id');
+    }
+
+    const sql = (await import('@/lib/neon/client')).getDb();
+
+    if (scenes) {
+      await sql`UPDATE classrooms SET classroom_data = jsonb_set(classroom_data, '{scenes}', ${JSON.stringify(scenes)}::jsonb) WHERE id = ${id}`;
+    }
+
+    if (title) {
+      await sql`UPDATE classrooms SET title = ${title} WHERE id = ${id}`;
+    }
+
+    return apiSuccess({ id, updated: true });
+  } catch (error) {
+    return apiError(
+      API_ERROR_CODES.INTERNAL_ERROR,
+      500,
+      'Failed to update classroom',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
