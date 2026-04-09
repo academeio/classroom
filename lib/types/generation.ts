@@ -68,6 +68,7 @@ export interface UserRequirements {
   userNickname?: string; // Student nickname for personalization
   userBio?: string; // Student background for personalization
   webSearch?: boolean; // Enable web search for richer context
+  competencyCodes?: string[]; // NMC 2024 competency codes (e.g. ["AN79.1", "PY10.3"])
 }
 
 /**

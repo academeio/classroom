@@ -15,7 +15,7 @@
  * - https://api-docs.deepseek.com/quick_start/pricing
  * - https://platform.moonshot.cn/docs/pricing/chat
  * - https://platform.minimaxi.com/docs/guides/text-generation
- * - https://platform.minimaxi.com/docs/api-reference/text-anthropic-api
+ * - https://platform.minimax.io/docs/api-reference/text-anthropic-api
  * - https://docs.bigmodel.cn/cn/guide/start/model-overview
  * - https://help.aliyun.com/zh/model-studio/models (Qwen/DashScope)
  * - https://siliconflow.cn/models
@@ -158,7 +158,6 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
         outputWindow: 4096,
         capabilities: { streaming: true, tools: true, vision: true },
       },
-
       {
         id: 'o4-mini',
         name: 'o4-mini',
@@ -312,6 +311,22 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
       {
         id: 'gemini-3.1-pro-preview',
         name: 'Gemini 3.1 Pro Preview',
+        contextWindow: 1048576,
+        outputWindow: 65536,
+        capabilities: {
+          streaming: true,
+          tools: true,
+          vision: true,
+          thinking: {
+            toggleable: false,
+            budgetAdjustable: true,
+            defaultEnabled: true,
+          },
+        },
+      },
+      {
+        id: 'gemini-3-pro-preview',
+        name: 'Gemini 3 Pro Preview',
         contextWindow: 1048576,
         outputWindow: 65536,
         capabilities: {
@@ -654,8 +669,8 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
     icon: '/logos/minimax.svg',
     models: [
       {
-        id: 'MiniMax-M2',
-        name: 'MiniMax M2',
+        id: 'MiniMax-M2.5',
+        name: 'MiniMax M2.5',
         contextWindow: 204800,
         outputWindow: 8192,
         capabilities: { streaming: true, tools: true, vision: false },
@@ -668,36 +683,15 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
         capabilities: { streaming: true, tools: true, vision: false },
       },
       {
-        id: 'MiniMax-M2.1-highspeed',
-        name: 'MiniMax M2.1 Highspeed',
+        id: 'MiniMax-M2.1-lightning',
+        name: 'MiniMax M2.1 Lightning',
         contextWindow: 204800,
         outputWindow: 8192,
         capabilities: { streaming: true, tools: true, vision: false },
       },
       {
-        id: 'MiniMax-M2.5',
-        name: 'MiniMax M2.5',
-        contextWindow: 204800,
-        outputWindow: 8192,
-        capabilities: { streaming: true, tools: true, vision: false },
-      },
-      {
-        id: 'MiniMax-M2.5-highspeed',
-        name: 'MiniMax M2.5 Highspeed',
-        contextWindow: 204800,
-        outputWindow: 8192,
-        capabilities: { streaming: true, tools: true, vision: false },
-      },
-      {
-        id: 'MiniMax-M2.7',
-        name: 'MiniMax M2.7',
-        contextWindow: 204800,
-        outputWindow: 8192,
-        capabilities: { streaming: true, tools: true, vision: false },
-      },
-      {
-        id: 'MiniMax-M2.7-highspeed',
-        name: 'MiniMax M2.7 Highspeed',
+        id: 'MiniMax-M2',
+        name: 'MiniMax M2',
         contextWindow: 204800,
         outputWindow: 8192,
         capabilities: { streaming: true, tools: true, vision: false },
@@ -843,114 +837,6 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
       },
     ],
   },
-
-  grok: {
-    id: 'grok',
-    name: 'Grok',
-    type: 'openai',
-    defaultBaseUrl: 'https://api.x.ai/v1',
-    requiresApiKey: true,
-    icon: '/logos/grok.svg',
-    models: [
-      {
-        id: 'grok-4.20-beta-0309-reasoning',
-        name: 'Grok 4.20 Reasoning',
-        contextWindow: 2000000,
-        outputWindow: 131072,
-        capabilities: {
-          streaming: true,
-          tools: true,
-          vision: true,
-          thinking: {
-            toggleable: false,
-            budgetAdjustable: false,
-            defaultEnabled: true,
-          },
-        },
-      },
-      {
-        id: 'grok-4.20-beta-0309-non-reasoning',
-        name: 'Grok 4.20',
-        contextWindow: 2000000,
-        outputWindow: 131072,
-        capabilities: { streaming: true, tools: true, vision: true },
-      },
-      {
-        id: 'grok-code-fast-1',
-        name: 'Grok Code Fast',
-        contextWindow: 256000,
-        outputWindow: 32768,
-        capabilities: { streaming: true, tools: true, vision: false },
-      },
-      {
-        id: 'grok-4-fast-reasoning',
-        name: 'Grok 4 Fast Reasoning',
-        contextWindow: 2000000,
-        outputWindow: 131072,
-        capabilities: {
-          streaming: true,
-          tools: true,
-          vision: true,
-          thinking: {
-            toggleable: false,
-            budgetAdjustable: false,
-            defaultEnabled: true,
-          },
-        },
-      },
-      {
-        id: 'grok-4-fast-non-reasoning',
-        name: 'Grok 4 Fast',
-        contextWindow: 2000000,
-        outputWindow: 131072,
-        capabilities: { streaming: true, tools: true, vision: true },
-      },
-      {
-        id: 'grok-4-1-fast-reasoning',
-        name: 'Grok 4.1 Fast Reasoning',
-        contextWindow: 2000000,
-        outputWindow: 131072,
-        capabilities: {
-          streaming: true,
-          tools: true,
-          vision: true,
-          thinking: {
-            toggleable: false,
-            budgetAdjustable: false,
-            defaultEnabled: true,
-          },
-        },
-      },
-      {
-        id: 'grok-4-1-fast-non-reasoning',
-        name: 'Grok 4.1 Fast',
-        contextWindow: 2000000,
-        outputWindow: 131072,
-        capabilities: { streaming: true, tools: true, vision: true },
-      },
-      {
-        id: 'grok-4-0709',
-        name: 'Grok 4',
-        contextWindow: 256000,
-        outputWindow: 32768,
-        capabilities: { streaming: true, tools: true, vision: true },
-      },
-      {
-        id: 'grok-3',
-        name: 'Grok 3',
-        contextWindow: 131072,
-        outputWindow: 32768,
-        capabilities: { streaming: true, tools: true, vision: false },
-      },
-      {
-        id: 'grok-3-mini',
-        name: 'Grok 3 Mini',
-        contextWindow: 131072,
-        outputWindow: 32768,
-        capabilities: { streaming: true, tools: true, vision: false },
-      },
-    ],
-  },
 };
 
 /**
@@ -1036,24 +922,6 @@ function getCompatThinkingBodyParams(
   return undefined;
 }
 
-function normalizeMiniMaxAnthropicBaseUrl(
-  providerId: ProviderId,
-  baseUrl?: string,
-): string | undefined {
-  if (providerId !== 'minimax' || !baseUrl) {
-    return baseUrl;
-  }
-
-  const trimmed = baseUrl.replace(/\/$/, '');
-  if (trimmed.endsWith('/anthropic/v1')) {
-    return trimmed;
-  }
-  if (trimmed.endsWith('/anthropic')) {
-    return `${trimmed}/v1`;
-  }
-  return `${trimmed}/anthropic/v1`;
-}
-
 /**
  * Get a configured language model instance with its info
  * Accepts individual parameters for flexibility and security
@@ -1083,10 +951,7 @@ export function getModel(config: ModelConfig): ModelWithInfo {
 
   // Resolve base URL: explicit > provider default > SDK default
   const provider = getProviderConfig(config.providerId);
-  const effectiveBaseUrl = normalizeMiniMaxAnthropicBaseUrl(
-    config.providerId,
-    config.baseUrl || provider?.defaultBaseUrl || undefined,
-  );
+  const effectiveBaseUrl = config.baseUrl || provider?.defaultBaseUrl || undefined;
 
   let model: LanguageModel;
 
@@ -1205,6 +1070,41 @@ export function getAllModels(): {
     provider,
     models: provider.models,
   }));
+}
+
+/**
+ * Purpose-based provider routing.
+ *
+ * - 'generation': content generation pipeline (outlines, scenes, agents, grading)
+ *   → Uses Claude (Anthropic) via DEFAULT_MODEL for quality.
+ * - 'chat': live chat / playback / PBL runtime
+ *   → Prefers Gemini Flash for cost-effectiveness, falls back to Claude.
+ */
+export type ProviderPurpose = 'generation' | 'chat';
+
+export function getProviderForPurpose(purpose: ProviderPurpose): {
+  provider: string;
+  model: string;
+} {
+  if (purpose === 'generation') {
+    return {
+      provider: 'anthropic',
+      model: process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-20250514',
+    };
+  }
+
+  // Chat: prefer Gemini Flash for cost-effectiveness, fall back to Claude
+  if (process.env.GOOGLE_API_KEY) {
+    return {
+      provider: 'google',
+      model: 'google:gemini-2.0-flash',
+    };
+  }
+
+  return {
+    provider: 'anthropic',
+    model: process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-20250514',
+  };
 }
 
 /**

@@ -126,7 +126,7 @@ export function SceneSidebar({
             className="flex items-center gap-2 cursor-pointer rounded-lg px-1.5 -mx-1.5 py-1 -my-1 hover:bg-gray-100/80 dark:hover:bg-gray-800/60 active:scale-[0.97] transition-all duration-150"
             title={t('generation.backToHome')}
           >
-            <img src="/logo-horizontal.png" alt="OpenMAIC" className="h-6" />
+            <img src="/logo-horizontal.png" alt="Academe Classroom" className="h-6" />
           </button>
           <button
             onClick={() => onCollapseChange(true)}
@@ -137,10 +137,7 @@ export function SceneSidebar({
         </div>
 
         {/* Scenes List */}
-        <div
-          data-testid="scene-list"
-          className="flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-2 scrollbar-hide pt-1"
-        >
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-2 scrollbar-hide pt-1">
           {scenes.map((scene, index) => {
             const isActive = currentSceneId === scene.id;
             const Icon = getSceneTypeIcon(scene.type);
@@ -150,7 +147,6 @@ export function SceneSidebar({
             return (
               <div
                 key={scene.id}
-                data-testid="scene-item"
                 onClick={() => {
                   if (onSceneSelect) {
                     onSceneSelect(scene.id);
@@ -179,7 +175,6 @@ export function SceneSidebar({
                       {index + 1}
                     </span>
                     <span
-                      data-testid="scene-title"
                       className={cn(
                         'text-xs font-bold truncate transition-colors',
                         isActive

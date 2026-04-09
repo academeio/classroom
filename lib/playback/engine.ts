@@ -305,30 +305,13 @@ export class PlaybackEngine {
     this.callbacks.onDiscussionEnd?.();
 
     // Restore lecture state
-    this.restoreSavedLectureState();
-
-    this.setMode('idle');
-  }
-
-  /**
-   * Exit live discussion mode after a request failure without treating it as a
-   * normal discussion end. The chat session stays retryable; this only restores
-   * the playback engine to a coherent non-live state.
-   */
-  handleDiscussionError(): void {
-    const hasSavedLectureState = this.savedSceneIndex !== null && this.savedActionIndex !== null;
-    const isLiveTopic =
-      this.mode === 'live' || (this.mode === 'paused' && this.currentTopicState === 'pending');
-
-    if (!isLiveTopic && !hasSavedLectureState) {
-      return;
+    if (this.savedSceneIndex !== null && this.savedActionIndex !== null) {
+      this.sceneIndex = this.savedSceneIndex;
+      this.actionIndex = this.savedActionIndex;
+      this.savedSceneIndex = null;
+      this.savedActionIndex = null;
     }
 
-    this.actionEngine.clearEffects();
-    useCanvasStore.getState().setWhiteboardOpen(false);
-    this.currentTopicState = 'closed';
-    this.currentTrigger = null;
-    this.restoreSavedLectureState();
     this.setMode('idle');
   }
 
@@ -389,15 +372,6 @@ export class PlaybackEngine {
     if (this.mode === mode) return;
     this.mode = mode;
     this.callbacks.onModeChange?.(mode);
-  }
-
-  private restoreSavedLectureState(): void {
-    if (this.savedSceneIndex !== null && this.savedActionIndex !== null) {
-      this.sceneIndex = this.savedSceneIndex;
-      this.actionIndex = this.savedActionIndex;
-    }
-    this.savedSceneIndex = null;
-    this.savedActionIndex = null;
   }
 
   /**
@@ -491,10 +465,10 @@ export class PlaybackEngine {
         };
 
         this.audioPlayer
-          .play(speechAction.audioId || '', speechAction.audioUrl)
+          .play(speechAction.audioId || speechAction.id || '')
           .then((audioStarted) => {
             if (!audioStarted) {
-              // No pre-generated audio — try browser-native TTS if selected
+              // No pre-generated audio — try server-side TTS or browser-native
               const settings = useSettingsStore.getState();
               if (
                 settings.ttsEnabled &&
@@ -503,6 +477,12 @@ export class PlaybackEngine {
                 window.speechSynthesis
               ) {
                 this.playBrowserTTS(speechAction);
+              } else if (
+                settings.ttsEnabled &&
+                settings.ttsProviderId !== 'browser-native-tts'
+              ) {
+                // Call server-side TTS API (Azure, OpenAI, etc.)
+                this.playServerTTS(speechAction, settings, scheduleReadingTimer);
               } else {
                 scheduleReadingTimer();
               }
@@ -526,10 +506,8 @@ export class PlaybackEngine {
             ? { dimOpacity: action.dimOpacity }
             : { color: action.color }),
         } as Effect);
-        // Don't block — continue immediately (use queueMicrotask to avoid
-        // stack overflow from deep synchronous recursion when many consecutive
-        // spotlight/laser actions appear in sequence)
-        queueMicrotask(() => this.processNext());
+        // Don't block — continue immediately
+        this.processNext();
         break;
       }
 
@@ -616,6 +594,67 @@ export class PlaybackEngine {
    * Splits text into sentence-level chunks to avoid Chrome's ~15s cutoff.
    * Uses cancel+re-speak for pause/resume (Firefox compatibility).
    */
+  /**
+   * Call server-side TTS API (Azure, OpenAI, etc.) and play the resulting audio.
+   * Falls back to reading timer if TTS fails.
+   */
+  private async playServerTTS(
+    speechAction: SpeechAction,
+    settings: { ttsProviderId: string; ttsVoice: string; ttsSpeed?: number },
+    fallbackTimer: () => void,
+  ): Promise<void> {
+    try {
+      const resp = await fetch('/api/generate/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: speechAction.text,
+          audioId: `live-${speechAction.id || Date.now()}`,
+          ttsProviderId: settings.ttsProviderId,
+          ttsVoice: settings.ttsVoice,
+          ttsSpeed: settings.ttsSpeed,
+        }),
+      });
+
+      if (!resp.ok) {
+        log.warn('Server TTS failed, using reading timer');
+        fallbackTimer();
+        return;
+      }
+
+      const data = await resp.json();
+      if (!data.success || !data.base64) {
+        log.warn('Server TTS returned no audio, using reading timer');
+        fallbackTimer();
+        return;
+      }
+
+      // Decode base64 and play
+      const audioBytes = Uint8Array.from(atob(data.base64), (c) => c.charCodeAt(0));
+      const blob = new Blob([audioBytes], { type: 'audio/mp3' });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        this.callbacks.onSpeechEnd?.();
+        if (this.mode === 'playing') this.processNext();
+      };
+
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        log.warn('Server TTS audio playback error, using reading timer');
+        fallbackTimer();
+      };
+
+      this.callbacks.onSpeechStart?.(speechAction.text);
+      await audio.play();
+    } catch (err) {
+      log.error('Server TTS error:', err);
+      fallbackTimer();
+    }
+  }
+
   private playBrowserTTS(speechAction: SpeechAction): void {
     this.browserTTSChunks = this.splitIntoChunks(speechAction.text);
     this.browserTTSChunkIndex = 0;
@@ -661,9 +700,7 @@ export class PlaybackEngine {
       // No usable voice configured — detect text language so the browser
       // auto-selects an appropriate voice.
       const cjkRatio =
-        chunkText.length > 0
-          ? (chunkText.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length / chunkText.length
-          : 0;
+        (chunkText.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length / chunkText.length;
       utterance.lang = cjkRatio > CJK_LANG_THRESHOLD ? 'zh-CN' : 'en-US';
     }
 
@@ -687,9 +724,6 @@ export class PlaybackEngine {
       // On 'canceled': do nothing — pause handler already saved state
     };
 
-    // Chrome bug workaround: cancel() before speak() to clear stale synthesis
-    // state that can produce garbled/broken audio output.
-    window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   }
 
@@ -739,3 +773,4 @@ export class PlaybackEngine {
     }
   }
 }
+// force rebuild 1773910051

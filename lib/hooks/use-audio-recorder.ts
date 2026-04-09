@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback } from 'react';
-import { ASR_PROVIDERS } from '@/lib/audio/constants';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('AudioRecorder');
@@ -31,8 +30,6 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Web Speech API not typed
   const speechRecognitionRef = useRef<any>(null);
-  // Synchronous lock to prevent rapid re-entry (React state updates are async)
-  const busyRef = useRef(false);
 
   // Send audio to server for transcription
   const transcribeAudio = useCallback(
@@ -50,12 +47,6 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
           const { asrProviderId, asrLanguage, asrProvidersConfig } = useSettingsStore.getState();
 
           formData.append('providerId', asrProviderId);
-          formData.append(
-            'modelId',
-            asrProvidersConfig?.[asrProviderId]?.modelId ||
-              ASR_PROVIDERS[asrProviderId]?.defaultModelId ||
-              '',
-          );
           formData.append('language', asrLanguage);
 
           // Append API key and base URL if configured
@@ -93,9 +84,6 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
 
   // Start recording
   const startRecording = useCallback(async () => {
-    // Synchronous lock — React state is async so isRecording may be stale
-    if (busyRef.current) return;
-    busyRef.current = true;
     try {
       // Get current ASR configuration
       if (typeof window !== 'undefined') {
@@ -141,16 +129,6 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
             let errorMessage = '语音识别失败';
 
             switch (event.error) {
-              case 'aborted':
-                // Non-fatal: caused by our own cancel/stop logic or rapid toggle
-                busyRef.current = false;
-                setIsRecording(false);
-                setRecordingTime(0);
-                if (timerRef.current) {
-                  clearInterval(timerRef.current);
-                  timerRef.current = null;
-                }
-                return;
               case 'no-speech':
                 errorMessage = '未检测到语音输入';
                 break;
@@ -168,7 +146,6 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
             }
 
             onError?.(errorMessage);
-            busyRef.current = false;
             setIsRecording(false);
             setRecordingTime(0);
             if (timerRef.current) {
@@ -178,7 +155,6 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
           };
 
           recognition.onend = () => {
-            busyRef.current = false;
             setIsRecording(false);
             setRecordingTime(0);
             if (timerRef.current) {
@@ -222,7 +198,6 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
 
         // Send to server for transcription
         await transcribeAudio(audioBlob);
-        busyRef.current = false;
       };
 
       // Start recording
@@ -235,7 +210,6 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
         setRecordingTime((prev) => prev + 1);
       }, 1000);
     } catch (error) {
-      busyRef.current = false;
       log.error('Failed to start recording:', error);
       onError?.('无法访问麦克风，请检查权限设置');
     }
@@ -247,7 +221,6 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
     if (speechRecognitionRef.current) {
       speechRecognitionRef.current.stop();
       speechRecognitionRef.current = null;
-      busyRef.current = false;
       setIsRecording(false);
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -259,7 +232,6 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
     // Stop MediaRecorder if active
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
-      busyRef.current = false;
       setIsRecording(false);
 
       if (timerRef.current) {
@@ -274,10 +246,8 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
     // Cancel Speech Recognition if active
     if (speechRecognitionRef.current) {
       speechRecognitionRef.current.onresult = null; // Prevent transcription callback
-      speechRecognitionRef.current.onerror = null; // Suppress browser abort error events
       speechRecognitionRef.current.stop();
       speechRecognitionRef.current = null;
-      busyRef.current = false;
       setIsRecording(false);
       setRecordingTime(0);
       if (timerRef.current) {
@@ -299,7 +269,6 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
         mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
       }
 
-      busyRef.current = false;
       setIsRecording(false);
       setRecordingTime(0);
 

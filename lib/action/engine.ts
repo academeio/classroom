@@ -169,7 +169,7 @@ export class ActionEngine {
 
     return new Promise<void>((resolve) => {
       this.audioPlayer!.onEnded(() => resolve());
-      this.audioPlayer!.play(action.audioId || '', action.audioUrl)
+      this.audioPlayer!.play(action.audioId || '')
         .then((audioStarted) => {
           if (!audioStarted) resolve();
         })
@@ -214,25 +214,15 @@ export class ActionEngine {
 
     useCanvasStore.getState().playVideo(action.elementId);
 
-    // Wait until the video finishes playing, with a safety timeout to prevent
-    // the playback engine from hanging indefinitely if the video element is
-    // invalid or the state change is missed.
+    // Wait until the video finishes playing
     return new Promise<void>((resolve) => {
-      const MAX_VIDEO_WAIT_MS = 5 * 60 * 1000; // 5 minutes
-      const timeout = setTimeout(() => {
-        unsubscribe();
-        log.warn(`[playVideo] Timeout waiting for video ${action.elementId} to finish`);
-        resolve();
-      }, MAX_VIDEO_WAIT_MS);
       const unsubscribe = useCanvasStore.subscribe((state) => {
         if (state.playingVideoElementId !== action.elementId) {
-          clearTimeout(timeout);
           unsubscribe();
           resolve();
         }
       });
       if (useCanvasStore.getState().playingVideoElementId !== action.elementId) {
-        clearTimeout(timeout);
         unsubscribe();
         resolve();
       }
@@ -294,8 +284,7 @@ export class ActionEngine {
     if (!wb.success || !wb.data) return;
 
     const fontSize = action.fontSize ?? 18;
-    let htmlContent = action.content ?? '';
-    if (!htmlContent) return; // nothing to draw
+    let htmlContent = action.content;
     if (!htmlContent.startsWith('<')) {
       htmlContent = `<p style="font-size: ${fontSize}px;">${htmlContent}</p>`;
     }
@@ -512,7 +501,9 @@ export class ActionEngine {
     if (elementCount === 0) return;
 
     // Save snapshot before AI clear (mirrors UI handleClear in index.tsx)
-    useWhiteboardHistoryStore.getState().pushSnapshot(wb.data.elements!);
+    useWhiteboardHistoryStore
+      .getState()
+      .pushSnapshot(wb.data.elements!, getClientTranslation('whiteboard.beforeAIClear'));
 
     // Trigger cascade exit animation
     useCanvasStore.getState().setWhiteboardClearing(true);

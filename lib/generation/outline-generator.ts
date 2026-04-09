@@ -34,8 +34,6 @@ export async function generateSceneOutlinesFromRequirements(
     imageMapping?: ImageMapping;
     imageGenerationEnabled?: boolean;
     videoGenerationEnabled?: boolean;
-    researchContext?: string;
-    teacherContext?: string;
   },
 ): Promise<GenerationResult<SceneOutline[]>> {
   // Build available images description for the prompt
@@ -95,6 +93,7 @@ export async function generateSceneOutlinesFromRequirements(
   }
 
   // Use simplified prompt variables
+  // medicalContext is auto-injected by buildPrompt if not provided
   const prompts = buildPrompt(PROMPT_IDS.REQUIREMENTS_TO_OUTLINES, {
     // New simplified variables
     requirement: requirements.requirement,
@@ -107,10 +106,6 @@ export async function generateSceneOutlinesFromRequirements(
     availableImages: availableImagesText,
     userProfile: userProfileText,
     mediaGenerationPolicy,
-    researchContext:
-      options?.researchContext || (requirements.language === 'zh-CN' ? '无' : 'None'),
-    // Server-side generation populates this via options; client-side populates via formatTeacherPersonaForPrompt
-    teacherContext: options?.teacherContext || '',
   });
 
   if (!prompts) {

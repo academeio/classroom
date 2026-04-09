@@ -6,15 +6,19 @@
  */
 
 import type { NextRequest } from 'next/server';
-import { getModel, parseModelString, type ModelWithInfo } from '@/lib/ai/providers';
+import {
+  getModel,
+  parseModelString,
+  getProviderForPurpose,
+  type ModelWithInfo,
+  type ProviderPurpose,
+} from '@/lib/ai/providers';
 import { resolveApiKey, resolveBaseUrl, resolveProxy } from '@/lib/server/provider-config';
 import { validateUrlForSSRF } from '@/lib/server/ssrf-guard';
 
 export interface ResolvedModel extends ModelWithInfo {
   /** Original model string (e.g. "openai/gpt-4o-mini") */
   modelString: string;
-  /** Effective API key after server-side fallback resolution */
-  apiKey: string;
 }
 
 /**
@@ -28,8 +32,14 @@ export function resolveModel(params: {
   baseUrl?: string;
   providerType?: string;
   requiresApiKey?: boolean;
+  /** When no explicit model is provided, use purpose-based routing to pick the default */
+  purpose?: ProviderPurpose;
 }): ResolvedModel {
-  const modelString = params.modelString || process.env.DEFAULT_MODEL || 'gpt-4o-mini';
+  // If no explicit model string, use purpose-based routing when a purpose is given
+  const defaultModel = params.purpose
+    ? getProviderForPurpose(params.purpose).model
+    : process.env.DEFAULT_MODEL || 'gpt-4o-mini';
+  const modelString = params.modelString || defaultModel;
   const { providerId, modelId } = parseModelString(modelString);
 
   const clientBaseUrl = params.baseUrl || undefined;
@@ -55,7 +65,7 @@ export function resolveModel(params: {
     requiresApiKey: params.requiresApiKey,
   });
 
-  return { model, modelInfo, modelString, apiKey };
+  return { model, modelInfo, modelString };
 }
 
 /**
@@ -63,12 +73,16 @@ export function resolveModel(params: {
  *
  * Reads: x-model, x-api-key, x-base-url, x-provider-type, x-requires-api-key
  */
-export function resolveModelFromHeaders(req: NextRequest): ResolvedModel {
+export function resolveModelFromHeaders(
+  req: NextRequest,
+  purpose?: ProviderPurpose,
+): ResolvedModel {
   return resolveModel({
     modelString: req.headers.get('x-model') || undefined,
     apiKey: req.headers.get('x-api-key') || undefined,
     baseUrl: req.headers.get('x-base-url') || undefined,
     providerType: req.headers.get('x-provider-type') || undefined,
     requiresApiKey: req.headers.get('x-requires-api-key') === 'true' ? true : undefined,
+    purpose,
   });
 }

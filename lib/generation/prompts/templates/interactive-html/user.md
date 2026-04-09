@@ -1,5 +1,7 @@
 Create an interactive learning page for the following concept.
 
+{{medicalContext}}
+
 ---
 
 ## Concept Information

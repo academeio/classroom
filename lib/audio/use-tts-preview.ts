@@ -10,7 +10,6 @@ import {
 export interface TTSPreviewOptions {
   text: string;
   providerId: string;
-  modelId?: string;
   voice: string;
   speed: number;
   apiKey?: string;
@@ -96,7 +95,6 @@ export function useTTSPreview() {
           text: options.text,
           audioId: 'preview',
           ttsProviderId: options.providerId,
-          ttsModelId: options.modelId,
           ttsVoice: options.voice,
           ttsSpeed: options.speed,
         };

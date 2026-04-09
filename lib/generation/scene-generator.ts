@@ -1079,9 +1079,7 @@ function formatElementsForPrompt(elements: PPTElement[]): string {
 function formatQuestionsForPrompt(questions: QuizQuestion[]): string {
   return questions
     .map((q, i) => {
-      const optionsText = q.options
-        ? `Options: ${q.options.map((o) => `${o.value}. ${o.label}`).join(', ')}`
-        : '';
+      const optionsText = q.options ? `Options: ${q.options.join(', ')}` : '';
       return `Q${i + 1} (${q.type}): ${q.question}\n${optionsText}`;
     })
     .join('\n\n');

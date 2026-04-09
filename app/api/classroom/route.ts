@@ -7,18 +7,12 @@ import {
   persistClassroom,
   readClassroom,
 } from '@/lib/server/classroom-storage';
-import { createLogger } from '@/lib/logger';
-
-const log = createLogger('Classroom API');
+import { getClassroom as getNeonClassroom } from '@/lib/storage/neon-classroom-store';
 
 export async function POST(request: NextRequest) {
-  let stageId: string | undefined;
-  let sceneCount: number | undefined;
   try {
     const body = await request.json();
     const { stage, scenes } = body;
-    stageId = stage?.id;
-    sceneCount = scenes?.length;
 
     if (!stage || !scenes) {
       return apiError(
@@ -35,10 +29,6 @@ export async function POST(request: NextRequest) {
 
     return apiSuccess({ id: persisted.id, url: persisted.url }, 201);
   } catch (error) {
-    log.error(
-      `Classroom storage failed [stageId=${stageId ?? 'unknown'}, scenes=${sceneCount ?? 0}]:`,
-      error,
-    );
     return apiError(
       API_ERROR_CODES.INTERNAL_ERROR,
       500,
@@ -64,21 +54,63 @@ export async function GET(request: NextRequest) {
       return apiError(API_ERROR_CODES.INVALID_REQUEST, 400, 'Invalid classroom id');
     }
 
-    const classroom = await readClassroom(id);
+    // Try local file storage first, then fall back to Neon for shareable URLs
+    let classroom = await readClassroom(id);
+
+    if (!classroom) {
+      try {
+        const neonRecord = await getNeonClassroom(id);
+        if (neonRecord) {
+          classroom = neonRecord.classroom_data as typeof classroom;
+        }
+      } catch (neonErr) {
+        console.error('[Classroom API] Neon fallback error for id:', id, neonErr instanceof Error ? neonErr.message : neonErr);
+      }
+    }
+
     if (!classroom) {
       return apiError(API_ERROR_CODES.INVALID_REQUEST, 404, 'Classroom not found');
     }
 
     return apiSuccess({ classroom });
   } catch (error) {
-    log.error(
-      `Classroom retrieval failed [id=${request.nextUrl.searchParams.get('id') ?? 'unknown'}]:`,
-      error,
-    );
     return apiError(
       API_ERROR_CODES.INTERNAL_ERROR,
       500,
       'Failed to retrieve classroom',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const { id, scenes, title } = await request.json();
+
+    if (!id) {
+      return apiError(API_ERROR_CODES.MISSING_REQUIRED_FIELD, 400, 'Missing required field: id');
+    }
+
+    if (!isValidClassroomId(id)) {
+      return apiError(API_ERROR_CODES.INVALID_REQUEST, 400, 'Invalid classroom id');
+    }
+
+    const sql = (await import('@/lib/neon/client')).getDb();
+
+    if (scenes) {
+      await sql`UPDATE classrooms SET classroom_data = jsonb_set(classroom_data, '{scenes}', ${JSON.stringify(scenes)}::jsonb) WHERE id = ${id}`;
+    }
+
+    if (title) {
+      await sql`UPDATE classrooms SET title = ${title} WHERE id = ${id}`;
+    }
+
+    return apiSuccess({ id, updated: true });
+  } catch (error) {
+    return apiError(
+      API_ERROR_CODES.INTERNAL_ERROR,
+      500,
+      'Failed to update classroom',
       error instanceof Error ? error.message : String(error),
     );
   }

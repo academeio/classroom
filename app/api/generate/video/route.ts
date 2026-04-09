@@ -87,10 +87,7 @@ export async function POST(request: NextRequest) {
       log.warn(`Video blocked by content safety filter: ${message}`);
       return apiError('CONTENT_SENSITIVE', 400, message);
     }
-    log.error(
-      `Video generation failed [provider=${request.headers.get('x-video-provider') ?? 'kling'}, model=${request.headers.get('x-video-model') ?? 'default'}]:`,
-      error,
-    );
+    log.error('Video generation error:', error);
     return apiError('INTERNAL_ERROR', 500, message);
   }
 }

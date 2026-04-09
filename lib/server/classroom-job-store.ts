@@ -1,16 +1,20 @@
-import { promises as fs } from 'fs';
-import path from 'path';
+/**
+ * Classroom generation job store backed by Vercel Blob.
+ *
+ * Vercel serverless has ephemeral /tmp that is NOT shared across invocations,
+ * so we use @vercel/blob for persistent cross-invocation job state.
+ *
+ * Requires BLOB_READ_WRITE_TOKEN env var:
+ * - On Vercel: automatically available when Blob storage is connected to the project.
+ * - Local dev: must be set manually in .env.local (copy from Vercel dashboard).
+ */
+import { put, list, del } from '@vercel/blob';
 import type {
   ClassroomGenerationProgress,
   ClassroomGenerationStep,
   GenerateClassroomInput,
   GenerateClassroomResult,
 } from '@/lib/server/classroom-generation';
-import {
-  CLASSROOM_JOBS_DIR,
-  ensureClassroomJobsDir,
-  writeJsonFileAtomic,
-} from '@/lib/server/classroom-storage';
 
 export type ClassroomGenerationJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
@@ -41,8 +45,10 @@ export interface ClassroomGenerationJob {
   error?: string;
 }
 
-function jobFilePath(jobId: string) {
-  return path.join(CLASSROOM_JOBS_DIR, `${jobId}.json`);
+const BLOB_PREFIX = 'classroom-jobs';
+
+function jobBlobPath(jobId: string): string {
+  return `${BLOB_PREFIX}/${jobId}.json`;
 }
 
 function buildInputSummary(input: GenerateClassroomInput): ClassroomGenerationJob['inputSummary'] {
@@ -56,7 +62,7 @@ function buildInputSummary(input: GenerateClassroomInput): ClassroomGenerationJo
   };
 }
 
-/** Simple per-job mutex to serialize read-modify-write on the same job file. */
+/** Simple per-job mutex to serialize read-modify-write on the same job within a single invocation. */
 const jobLocks = new Map<string, Promise<void>>();
 
 async function withJobLock<T>(jobId: string, fn: () => Promise<T>): Promise<T> {
@@ -99,6 +105,22 @@ export function isValidClassroomJobId(jobId: string): boolean {
   return /^[a-zA-Z0-9_-]+$/.test(jobId);
 }
 
+async function writeJobBlob(jobId: string, job: ClassroomGenerationJob): Promise<void> {
+  await put(jobBlobPath(jobId), JSON.stringify(job, null, 2), {
+    access: 'public',
+    contentType: 'application/json',
+    addRandomSuffix: false,
+  });
+}
+
+async function readJobBlob(jobId: string): Promise<ClassroomGenerationJob | null> {
+  const { blobs } = await list({ prefix: jobBlobPath(jobId), limit: 1 });
+  if (blobs.length === 0) return null;
+  const res = await fetch(blobs[0].url);
+  if (!res.ok) return null;
+  return (await res.json()) as ClassroomGenerationJob;
+}
+
 export async function createClassroomGenerationJob(
   jobId: string,
   input: GenerateClassroomInput,
@@ -116,24 +138,16 @@ export async function createClassroomGenerationJob(
     scenesGenerated: 0,
   };
 
-  await ensureClassroomJobsDir();
-  await writeJsonFileAtomic(jobFilePath(jobId), job);
+  await writeJobBlob(jobId, job);
   return job;
 }
 
 export async function readClassroomGenerationJob(
   jobId: string,
 ): Promise<ClassroomGenerationJob | null> {
-  try {
-    const content = await fs.readFile(jobFilePath(jobId), 'utf-8');
-    const job = JSON.parse(content) as ClassroomGenerationJob;
-    return markStaleIfNeeded(job);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return null;
-    }
-    throw error;
-  }
+  const job = await readJobBlob(jobId);
+  if (!job) return null;
+  return markStaleIfNeeded(job);
 }
 
 export async function updateClassroomGenerationJob(
@@ -152,7 +166,7 @@ export async function updateClassroomGenerationJob(
       updatedAt: new Date().toISOString(),
     };
 
-    await writeJsonFileAtomic(jobFilePath(jobId), updated);
+    await writeJobBlob(jobId, updated);
     return updated;
   });
 }
@@ -174,7 +188,7 @@ export async function markClassroomGenerationJobRunning(
       updatedAt: new Date().toISOString(),
     };
 
-    await writeJsonFileAtomic(jobFilePath(jobId), updated);
+    await writeJobBlob(jobId, updated);
     return updated;
   });
 }
@@ -223,4 +237,12 @@ export async function markClassroomGenerationJobFailed(
     completedAt: new Date().toISOString(),
     error,
   });
+}
+
+/** Optional: delete a job blob (e.g. after it's been consumed). */
+export async function deleteClassroomGenerationJob(jobId: string): Promise<void> {
+  const { blobs } = await list({ prefix: jobBlobPath(jobId), limit: 1 });
+  if (blobs.length > 0) {
+    await del(blobs[0].url);
+  }
 }

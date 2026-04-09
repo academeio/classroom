@@ -15,8 +15,7 @@ export type BuiltInProviderId =
   | 'minimax'
   | 'glm'
   | 'siliconflow'
-  | 'doubao'
-  | 'grok';
+  | 'doubao';
 
 /**
  * Provider ID (built-in or custom)

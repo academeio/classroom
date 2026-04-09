@@ -7,11 +7,8 @@ import { validateUrlForSSRF } from '@/lib/server/ssrf-guard';
 const log = createLogger('Verify PDF Provider');
 
 export async function POST(req: NextRequest) {
-  let providerId: string | undefined;
   try {
-    const body = await req.json();
-    providerId = body.providerId;
-    const { apiKey, baseUrl } = body;
+    const { providerId, apiKey, baseUrl } = await req.json();
 
     if (!providerId) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Provider ID is required');
@@ -56,7 +53,7 @@ export async function POST(req: NextRequest) {
       status: response.status,
     });
   } catch (error) {
-    log.error(`PDF provider verification failed [provider=${providerId ?? 'unknown'}]:`, error);
+    log.error('PDF provider test error:', error);
 
     let errorMessage = 'Connection failed';
     if (error instanceof Error) {

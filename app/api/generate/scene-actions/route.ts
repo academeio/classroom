@@ -32,8 +32,6 @@ const log = createLogger('Scene Actions API');
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  let outlineTitle: string | undefined;
-  let resolvedModelString: string | undefined;
   try {
     const body = await req.json();
     const {
@@ -78,8 +76,6 @@ export async function POST(req: NextRequest) {
 
     // ── Model resolution from request headers ──
     const { model: languageModel, modelInfo, modelString } = resolveModelFromHeaders(req);
-    outlineTitle = outline?.title;
-    resolvedModelString = modelString;
 
     // Detect vision capability
     const hasVision = !!modelInfo?.capabilities?.vision;
@@ -156,10 +152,7 @@ export async function POST(req: NextRequest) {
 
     return apiSuccess({ scene, previousSpeeches: outputPreviousSpeeches });
   } catch (error) {
-    log.error(
-      `Scene actions generation failed [scene="${outlineTitle ?? 'unknown'}", model=${resolvedModelString ?? 'unknown'}]:`,
-      error,
-    );
+    log.error('Scene actions generation error:', error);
     return apiError('INTERNAL_ERROR', 500, error instanceof Error ? error.message : String(error));
   }
 }

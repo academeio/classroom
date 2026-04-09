@@ -148,10 +148,15 @@ Structure:
 Elements to focus on should be **key content currently being discussed**:
 
 - Title or key point text being explained
-- Chart or image being discussed
-- Formula or data requiring special attention
+- Charts, tables, and formulas requiring attention
 - Video elements: use `play_video` instead of spotlight for video elements
 - Do NOT focus on decorative elements
+
+**Image elements — special handling:**
+- Do NOT use `spotlight` on image elements. Spotlight highlights the entire element boundary, which looks bad on large images — it just dims everything else and highlights the whole slide area.
+- Instead, use `laser` for brief references to an image (e.g., "notice this diagram"), then immediately move to spotlighting the text elements around it (titles, labels, bullet points) while verbally describing what to look at in the image.
+- When discussing a diagram or medical image, the speech text should guide the student's eye: "Looking at this diagram, you can see the left ventricle labeled here..." — the verbal narration replaces the need to visually highlight image sub-regions.
+- If a slide has ONLY an image and no text elements, skip spotlight/laser entirely and rely on speech narration to walk through the image content.
 
 ### 3. Pacing Control
 

@@ -6,11 +6,8 @@ import { resolveModel } from '@/lib/server/resolve-model';
 const log = createLogger('Verify Model');
 
 export async function POST(req: NextRequest) {
-  let model: string | undefined;
   try {
-    const body = await req.json();
-    const { apiKey, baseUrl, providerType, requiresApiKey } = body;
-    model = body.model;
+    const { apiKey, baseUrl, model, providerType, requiresApiKey } = await req.json();
 
     if (!model) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Model name is required');
@@ -46,7 +43,7 @@ export async function POST(req: NextRequest) {
       response: text,
     });
   } catch (error) {
-    log.error(`Model verification failed [model="${model ?? 'unknown'}"]:`, error);
+    log.error('API test error:', error);
 
     let errorMessage = 'Connection failed';
     if (error instanceof Error) {

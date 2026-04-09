@@ -14,11 +14,13 @@
 
 import { NextRequest } from 'next/server';
 import { statelessGenerate } from '@/lib/orchestration/stateless-generate';
+import { getModel, parseModelString, getProviderForPurpose } from '@/lib/ai/providers';
+import { resolveApiKey, resolveBaseUrl, resolveProxy } from '@/lib/server/provider-config';
 import type { StatelessChatRequest, StatelessEvent } from '@/lib/types/chat';
 import type { ThinkingConfig } from '@/lib/types/provider';
 import { apiError } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
-import { resolveModel } from '@/lib/server/resolve-model';
+import { validateUrlForSSRF } from '@/lib/server/ssrf-guard';
 const log = createLogger('Chat API');
 
 // Allow streaming responses up to 60 seconds
@@ -42,13 +44,9 @@ export const maxDuration = 60;
  */
 export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
-  let chatModel: string | undefined;
-  let chatMessageCount: number | undefined;
 
   try {
     const body: StatelessChatRequest = await req.json();
-    chatModel = body.model;
-    chatMessageCount = body.messages?.length;
 
     // Validate required fields
     if (!body.messages || !Array.isArray(body.messages)) {
@@ -63,15 +61,27 @@ export async function POST(req: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Missing required field: config.agentIds');
     }
 
-    const { model: languageModel, apiKey: resolvedApiKey } = resolveModel({
-      modelString: body.model,
-      apiKey: body.apiKey,
-      baseUrl: body.baseUrl,
-      providerType: body.providerType,
-      requiresApiKey: body.requiresApiKey,
-    });
+    // Resolve API key: client > server > Gemini Flash (chat purpose)
+    const modelString = body.model || getProviderForPurpose('chat').model;
+    const { providerId, modelId } = parseModelString(modelString);
 
-    if (!resolvedApiKey && body.requiresApiKey !== false) {
+    const clientBaseUrl = body.baseUrl || undefined;
+    if (clientBaseUrl && process.env.NODE_ENV === 'production') {
+      const ssrfError = validateUrlForSSRF(clientBaseUrl);
+      if (ssrfError) {
+        return apiError('INVALID_URL', 403, ssrfError);
+      }
+    }
+
+    const effectiveApiKey = clientBaseUrl
+      ? body.apiKey || ''
+      : resolveApiKey(providerId, body.apiKey);
+    const effectiveBaseUrl = clientBaseUrl
+      ? clientBaseUrl
+      : resolveBaseUrl(providerId, body.baseUrl);
+    const proxy = resolveProxy(providerId);
+
+    if (!effectiveApiKey) {
       return apiError('MISSING_API_KEY', 401, 'API Key is required');
     }
 
@@ -79,6 +89,15 @@ export async function POST(req: NextRequest) {
     log.info(
       `Agents: ${body.config.agentIds.join(', ')}, Messages: ${body.messages.length}, Turn: ${body.directorState?.turnCount ?? 0}`,
     );
+
+    // Create LanguageModel via the unified provider system
+    const { model: languageModel } = getModel({
+      providerId,
+      modelId,
+      apiKey: effectiveApiKey,
+      baseUrl: effectiveBaseUrl,
+      proxy,
+    });
 
     // Use the native request signal for abort propagation
     const signal = req.signal;
@@ -116,7 +135,7 @@ export async function POST(req: NextRequest) {
         const generator = statelessGenerate(
           {
             ...body,
-            apiKey: resolvedApiKey,
+            apiKey: effectiveApiKey,
           },
           signal,
           languageModel,
@@ -149,10 +168,7 @@ export async function POST(req: NextRequest) {
           return;
         }
 
-        log.error(
-          `Chat stream error [model=${body.model ?? 'unknown'}, agents=${body.config?.agentIds?.length ?? 0}, messages=${body.messages?.length ?? 0}]:`,
-          error,
-        );
+        log.error('Stream error:', error);
 
         // Try to send error event
         try {
@@ -178,10 +194,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    log.error(
-      `Chat request failed [model=${chatModel ?? 'unknown'}, messages=${chatMessageCount ?? 0}]:`,
-      error,
-    );
+    log.error('Error:', error);
     return apiError(
       'INTERNAL_ERROR',
       500,

@@ -1,34 +1,30 @@
 import { after, type NextRequest } from 'next/server';
 import { nanoid } from 'nanoid';
-import { apiError, apiSuccess } from '@/lib/server/api-response';
+import { apiError, apiSuccess, API_ERROR_CODES } from '@/lib/server/api-response';
 import { type GenerateClassroomInput } from '@/lib/server/classroom-generation';
 import { runClassroomGenerationJob } from '@/lib/server/classroom-job-runner';
 import { createClassroomGenerationJob } from '@/lib/server/classroom-job-store';
 import { buildRequestOrigin } from '@/lib/server/classroom-storage';
-import { createLogger } from '@/lib/logger';
-
-const log = createLogger('GenerateClassroom API');
+import { checkRateLimit } from '@/lib/rate-limit';
 
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
-  let requirementSnippet: string | undefined;
   try {
+    const { allowed } = checkRateLimit('generation', 10, 60 * 60 * 1000); // 10/hour
+    if (!allowed) {
+      return apiError(
+        API_ERROR_CODES.RATE_LIMITED,
+        429,
+        'Generation rate limit exceeded. Please try again later.',
+      );
+    }
+
     const rawBody = (await req.json()) as Partial<GenerateClassroomInput>;
-    requirementSnippet = rawBody.requirement?.substring(0, 60);
     const body: GenerateClassroomInput = {
       requirement: rawBody.requirement || '',
       ...(rawBody.pdfContent ? { pdfContent: rawBody.pdfContent } : {}),
       ...(rawBody.language ? { language: rawBody.language } : {}),
-      ...(rawBody.enableWebSearch != null ? { enableWebSearch: rawBody.enableWebSearch } : {}),
-      ...(rawBody.enableImageGeneration != null
-        ? { enableImageGeneration: rawBody.enableImageGeneration }
-        : {}),
-      ...(rawBody.enableVideoGeneration != null
-        ? { enableVideoGeneration: rawBody.enableVideoGeneration }
-        : {}),
-      ...(rawBody.enableTTS != null ? { enableTTS: rawBody.enableTTS } : {}),
-      ...(rawBody.agentMode ? { agentMode: rawBody.agentMode } : {}),
     };
     const { requirement } = body;
 
@@ -55,10 +51,6 @@ export async function POST(req: NextRequest) {
       202,
     );
   } catch (error) {
-    log.error(
-      `Classroom generation job creation failed [requirement="${requirementSnippet ?? 'unknown'}..."]:`,
-      error,
-    );
     return apiError(
       'INTERNAL_ERROR',
       500,
