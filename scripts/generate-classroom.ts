@@ -25,7 +25,6 @@ config({ path: resolve(__dirname, '..', '.env.local') });
 
 import { nanoid } from 'nanoid';
 import { saveClassroom } from '../lib/storage/neon-classroom-store';
-import { getClassroomAudio } from '../lib/storage/neon-audio-store';
 import { uploadClassroomImage, uploadClassroomAudio, uploadAudioManifest } from '../lib/storage/r2-client';
 import sharp from 'sharp';
 import { fallbackToExistingImage } from '../lib/media/adapters/gemini-medical-fallback';
@@ -732,28 +731,19 @@ async function main() {
       0,
     );
 
-    // Count pre-rendered audio
-    const audioRows = await getClassroomAudio(classroomId);
-    const preRenderedCount = audioRows.length;
+    // Count pre-rendered audio (from local ttsCount — audio is now in R2, not Neon)
+    const preRenderedCount = ttsCount;
     const audioCoverage = totalSpeechActions > 0 ? Math.round((preRenderedCount / totalSpeechActions) * 100) : 0;
 
     const qaPass = audioCoverage >= 90; // Allow 10% tolerance for edge cases
 
     console.log(`  Speech actions: ${totalSpeechActions}`);
-    console.log(`  Pre-rendered audio: ${preRenderedCount}`);
+    console.log(`  Pre-rendered audio: ${preRenderedCount} (R2)`);
     console.log(`  Audio coverage: ${audioCoverage}%`);
     console.log(`  QA status: ${qaPass ? 'PASS' : 'FAIL — audio not fully pre-rendered'}`);
 
-    if (!qaPass && ttsErrors === 0) {
-      // Audio IDs may not match — log for debugging
-      const speechIds = scenes.flatMap((s: any) =>
-        (s.actions || []).filter((a: any) => a.type === 'speech').map((a: any) => a.id),
-      );
-      const audioIds = new Set(audioRows.map((a: any) => a.audioId));
-      const missing = speechIds.filter((id: string) => !audioIds.has(id));
-      if (missing.length > 0) {
-        console.log(`  Missing audio IDs (first 5): ${missing.slice(0, 5).join(', ')}`);
-      }
+    if (!qaPass) {
+      console.log(`  TTS errors: ${ttsErrors}`);
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
