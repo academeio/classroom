@@ -91,8 +91,13 @@ async function enhancePromptWithClaude(
     throw new Error('Claude returned empty response for prompt enhancement');
   }
 
-  // Parse JSON from Claude's response (may be wrapped in ```json blocks)
-  const jsonStr = content.replace(/^```json\s*\n?/, '').replace(/\n?```\s*$/, '');
+  // Parse JSON from Claude's response — strip markdown fences, leading/trailing whitespace
+  let jsonStr = content.trim();
+  // Remove ```json ... ``` wrapping (multiline)
+  const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (fenceMatch) {
+    jsonStr = fenceMatch[1].trim();
+  }
   try {
     return JSON.parse(jsonStr) as GeminiMedicalPrompt;
   } catch {
