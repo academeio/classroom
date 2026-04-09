@@ -25,8 +25,8 @@ config({ path: resolve(__dirname, '..', '.env.local') });
 
 import { nanoid } from 'nanoid';
 import { saveClassroom } from '../lib/storage/neon-classroom-store';
-import { saveAudio, getClassroomAudio } from '../lib/storage/neon-audio-store';
-import { saveImage } from '../lib/storage/neon-image-store';
+import { getClassroomAudio } from '../lib/storage/neon-audio-store';
+import { uploadClassroomImage, uploadClassroomAudio, uploadAudioManifest } from '../lib/storage/r2-client';
 import sharp from 'sharp';
 import { fallbackToExistingImage } from '../lib/media/adapters/gemini-medical-fallback';
 import { SARVAM_VOICE_MAP } from '../lib/orchestration/registry/medical-agents';
@@ -487,6 +487,7 @@ async function main() {
 
   // Create stage
   const stageId = nanoid(10);
+  const classroomId = nanoid(10);
   const stage = {
     id: stageId,
     name: args.topic,
@@ -532,19 +533,17 @@ async function main() {
         if (resp.ok) {
           const imgData = await resp.json();
           if (imgData.success && imgData.result?.base64) {
-            // Compress: resize to max 800px wide, convert to JPEG quality 80
             const rawBuffer = Buffer.from(imgData.result.base64, 'base64');
             const compressed = await sharp(rawBuffer)
               .resize(800, null, { withoutEnlargement: true })
               .jpeg({ quality: 80 })
               .toBuffer();
-            const compressedBase64 = compressed.toString('base64');
             const originalKB = Math.round(rawBuffer.length / 1024);
             const compressedKB = Math.round(compressed.length / 1024);
 
-            await saveImage(req.elementId, stageId, compressedBase64, 'image/jpeg');
-            generatedImages[req.elementId] = `${args.baseUrl}/api/classroom-images?imageId=${req.elementId}`;
-            console.log(`done (${originalKB}KB → ${compressedKB}KB compressed)`);
+            const imageUrl = await uploadClassroomImage(classroomId, req.elementId, compressed);
+            generatedImages[req.elementId] = imageUrl;
+            console.log(`done (${originalKB}KB → ${compressedKB}KB) → R2`);
           } else {
             console.log(`generation skipped: ${imgData.error || 'no result'}`);
             // Fallback: try pre-existing image from cbme
@@ -634,12 +633,12 @@ async function main() {
   }
 
   // Step 6: Pre-render TTS audio via Sarvam AI (2 alternating voices per classroom)
-  const classroomId = nanoid(10);
   classroomVoicePair = pickVoicePair();
   voiceAlternateIndex = 0;
   console.log(`\n[6/7] Pre-rendering TTS audio via Sarvam AI...`);
   console.log(`  Voices: ${classroomVoicePair[0]} (F) + ${classroomVoicePair[1]} (M)`);
 
+  const audioManifestEntries: Array<{ audioId: string; url: string }> = [];
   let ttsCount = 0;
   let ttsErrors = 0;
   let ttsChars = 0;
@@ -659,10 +658,12 @@ async function main() {
       process.stdout.write(`  TTS "${audioId}" [${voice}] (${text.length} chars)... `);
       try {
         const { base64, format } = await generateTTSViaSarvam(text, voice);
-        await saveAudio(audioId, classroomId, base64, format);
+        const audioBuffer = Buffer.from(base64, 'base64');
+        const audioUrl = await uploadClassroomAudio(classroomId, audioId, audioBuffer, format);
+        audioManifestEntries.push({ audioId, url: audioUrl });
         ttsCount++;
         ttsChars += text.length;
-        console.log(`done (${Math.round(base64.length * 0.75 / 1024)}KB)`);
+        console.log(`done (${Math.round(audioBuffer.length / 1024)}KB) → R2`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.log(`FAILED: ${msg}`);
@@ -673,6 +674,13 @@ async function main() {
   }
 
   console.log(`  Pre-rendered ${ttsCount} audio files (${ttsErrors} errors, ${ttsChars} chars).`);
+
+  // Upload audio manifest to R2
+  let manifestUrl: string | undefined;
+  if (audioManifestEntries.length > 0) {
+    manifestUrl = await uploadAudioManifest(classroomId, audioManifestEntries);
+    console.log(`  Manifest: ${manifestUrl}`);
+  }
 
   // Replace gen_img_* placeholders with actual base64 data URLs in scene elements
   if (Object.keys(generatedImages).length > 0) {
@@ -695,6 +703,7 @@ async function main() {
     stage,
     scenes,
     outlines,
+    manifestUrl,
     generatedAt: new Date().toISOString(),
     generationArgs: {
       topic: args.topic,
