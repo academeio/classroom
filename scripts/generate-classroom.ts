@@ -30,6 +30,7 @@ import { saveImage } from '../lib/storage/neon-image-store';
 import sharp from 'sharp';
 import { generateTTS } from '../lib/audio/tts-providers';
 import { resolveTTSApiKey, resolveTTSBaseUrl } from '../lib/server/provider-config';
+import { fallbackToExistingImage } from '../lib/media/adapters/gemini-medical-fallback';
 
 // ── Types ──
 
@@ -126,6 +127,30 @@ function getModelHeaders(model?: string): Record<string, string> {
     'x-image-generation-enabled': 'true',
     'x-video-generation-enabled': 'false',
   };
+}
+
+/**
+ * Try to find a pre-existing image from cbme's capsule_images.
+ * Logs result, updates generatedImages map on success.
+ */
+async function tryFallbackImage(
+  req: { elementId: string; prompt: string },
+  classroomId: string,
+  baseUrl: string,
+  generatedImages: Record<string, string>,
+): Promise<void> {
+  process.stdout.write(`    ↳ Trying fallback from cbme library... `);
+  try {
+    const fallback = await fallbackToExistingImage(req.prompt, req.elementId, classroomId);
+    if (fallback) {
+      generatedImages[req.elementId] = `${baseUrl}/api/classroom-images?imageId=${req.elementId}`;
+      console.log('found & copied!');
+    } else {
+      console.log('no match — skipping image.');
+    }
+  } catch (err) {
+    console.log(`fallback failed: ${err instanceof Error ? err.message : err}`);
+  }
 }
 
 // ── Step 1: Authenticate ──
@@ -394,7 +419,7 @@ async function main() {
   const generatedImages: Record<string, string> = {}; // elementId → serving URL
 
   if (mediaRequests.length > 0) {
-    console.log(`\n[3b/7] Generating ${mediaRequests.length} medical diagram(s)...`);
+    console.log(`\n[3b/7] Generating ${mediaRequests.length} medical diagram(s) via Gemini Medical...`);
     for (let i = 0; i < mediaRequests.length; i++) {
       const req = mediaRequests[i];
       process.stdout.write(`  [${i + 1}/${mediaRequests.length}] "${req.elementId}" ... `);
@@ -403,7 +428,7 @@ async function main() {
           method: 'POST',
           headers: {
             ...getModelHeaders(args.model),
-            'x-image-provider': 'nano-banana',
+            'x-image-provider': 'gemini-medical',
           },
           body: JSON.stringify({
             prompt: req.prompt,
@@ -428,14 +453,20 @@ async function main() {
             generatedImages[req.elementId] = `${args.baseUrl}/api/classroom-images?imageId=${req.elementId}`;
             console.log(`done (${originalKB}KB → ${compressedKB}KB compressed)`);
           } else {
-            console.log(`skipped: ${imgData.error || 'no result'}`);
+            console.log(`generation skipped: ${imgData.error || 'no result'}`);
+            // Fallback: try pre-existing image from cbme
+            await tryFallbackImage(req, stageId, args.baseUrl, generatedImages);
           }
         } else {
           const errBody = await resp.text().catch(() => '');
-          console.log(`failed (${resp.status}): ${errBody.substring(0, 100)}`);
+          console.log(`generation failed (${resp.status}): ${errBody.substring(0, 100)}`);
+          // Fallback: try pre-existing image from cbme
+          await tryFallbackImage(req, stageId, args.baseUrl, generatedImages);
         }
       } catch (err) {
         console.log(`error: ${err instanceof Error ? err.message : err}`);
+        // Fallback: try pre-existing image from cbme
+        await tryFallbackImage(req, stageId, args.baseUrl, generatedImages);
       }
     }
     console.log(`  Generated ${Object.keys(generatedImages).length}/${mediaRequests.length} images.`);
