@@ -12,7 +12,7 @@ import { useWhiteboardHistoryStore } from '@/lib/store/whiteboard-history';
 import { createLogger } from '@/lib/logger';
 import { MediaStageProvider } from '@/lib/contexts/media-stage-context';
 import { generateMediaForOutlines } from '@/lib/media/media-orchestrator';
-import { preloadClassroomAudio } from '@/lib/utils/audio-preloader';
+import { preloadFromManifest, preloadClassroomAudio } from '@/lib/utils/audio-preloader';
 
 const log = createLogger('Classroom');
 
@@ -37,6 +37,8 @@ export default function ClassroomDetailPage() {
     try {
       await loadFromStorage(classroomId);
 
+      let manifestUrl: string | undefined;
+
       // If IndexedDB had no data, try server-side storage (API-generated classrooms)
       if (!useStageStore.getState().stage) {
         log.info('No IndexedDB data, trying server-side storage for:', classroomId);
@@ -45,7 +47,8 @@ export default function ClassroomDetailPage() {
           if (res.ok) {
             const json = await res.json();
             if (json.success && json.classroom) {
-              const { stage, scenes } = json.classroom;
+              const { stage, scenes, manifestUrl: mUrl } = json.classroom;
+              manifestUrl = mUrl as string | undefined;
               useStageStore.getState().setStage(stage);
               useStageStore.setState({
                 scenes,
@@ -59,10 +62,17 @@ export default function ClassroomDetailPage() {
         }
       }
 
-      // Pre-load pre-rendered TTS audio from Neon into IndexedDB (non-blocking)
-      preloadClassroomAudio(classroomId).catch((err) => {
-        log.warn('Audio pre-load failed (playback will use server TTS fallback):', err);
-      });
+      // Pre-load TTS audio: use R2 manifest if available, fall back to Neon API
+      if (manifestUrl) {
+        preloadFromManifest(manifestUrl).catch((err) => {
+          log.warn('R2 audio pre-load failed, trying Neon fallback:', err);
+          preloadClassroomAudio(classroomId).catch(() => {});
+        });
+      } else {
+        preloadClassroomAudio(classroomId).catch((err) => {
+          log.warn('Audio pre-load failed (playback will use server TTS fallback):', err);
+        });
+      }
 
       // Restore completed media generation tasks from IndexedDB
       await useMediaGenerationStore.getState().restoreFromDB(classroomId);
