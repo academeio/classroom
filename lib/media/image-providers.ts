@@ -12,6 +12,7 @@ import type {
 import { generateWithSeedream, testSeedreamConnectivity } from './adapters/seedream-adapter';
 import { generateWithQwenImage, testQwenImageConnectivity } from './adapters/qwen-image-adapter';
 import { generateWithNanoBanana, testNanoBananaConnectivity } from './adapters/nano-banana-adapter';
+import { generateWithGeminiMedical, testGeminiMedicalConnectivity } from './adapters/gemini-medical-adapter';
 
 export const IMAGE_PROVIDERS: Record<ImageProviderId, ImageProviderConfig> = {
   seedream: {
@@ -66,6 +67,23 @@ export const IMAGE_PROVIDERS: Record<ImageProviderId, ImageProviderConfig> = {
     ],
     supportedAspectRatios: ['16:9', '4:3', '1:1'],
   },
+  'gemini-medical': {
+    id: 'gemini-medical',
+    name: 'Gemini Medical (Claude-enhanced)',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://generativelanguage.googleapis.com',
+    models: [
+      {
+        id: 'gemini-3.1-flash-image-preview',
+        name: 'Gemini 3.1 Flash (auto-selected for simple)',
+      },
+      {
+        id: 'gemini-3-pro-image-preview',
+        name: 'Gemini 3 Pro (auto-selected for complex)',
+      },
+    ],
+    supportedAspectRatios: ['16:9', '4:3', '1:1'],
+  },
 };
 
 export async function testImageConnectivity(
@@ -78,6 +96,8 @@ export async function testImageConnectivity(
       return testQwenImageConnectivity(config);
     case 'nano-banana':
       return testNanoBananaConnectivity(config);
+    case 'gemini-medical':
+      return testGeminiMedicalConnectivity(config);
     default:
       return {
         success: false,
@@ -97,6 +117,8 @@ export async function generateImage(
       return generateWithQwenImage(config, options);
     case 'nano-banana':
       return generateWithNanoBanana(config, options);
+    case 'gemini-medical':
+      return generateWithGeminiMedical(config, options);
     default:
       throw new Error(`Unsupported image provider: ${config.providerId}`);
   }
