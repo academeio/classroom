@@ -6,9 +6,9 @@
  * plus a model selection (Flash for simple, Pro for complex).
  *
  * Key design decisions (from cbme pipeline learnings):
- * - Alphabet-only labeling: Gemini renders A/B/C labels, Claude crafts the legend separately
+ * - Full anatomical labels: Gemini 3.1 models render medical text labels correctly
  * - Structured JSON: Gemini produces scientifically valid images only with detailed specs
- * - Negative prompts: Always exclude text/words/labels to prevent misspelled medical terms
+ * - Self-explanatory images: Labels should make the diagram understandable without a legend
  */
 
 /** Structured prompt output from Claude's enhancement step */
@@ -24,10 +24,10 @@ export interface GeminiMedicalPrompt {
       description: string;
     };
     text: {
-      enabled: false;
+      enabled: boolean;
     };
     labeling: {
-      strategy: 'alphabet_only';
+      strategy: 'full_labels' | 'alphabet_only';
       labels: string[];
     };
     style: {
@@ -70,21 +70,21 @@ Return ONLY valid JSON matching this structure (no markdown, no explanation):
       "steps": 50
     },
     "scene": {
-      "description": "Explicit, detailed description of the image layout. Describe each panel position, what it contains, colors, arrangements. Be very specific about spatial layout."
+      "description": "Explicit, detailed description of the image layout. Describe each panel position, what it contains, colors, arrangements. Be very specific about spatial layout. Include full anatomical labels directly in the description."
     },
     "text": {
-      "enabled": false
+      "enabled": true
     },
     "labeling": {
-      "strategy": "alphabet_only",
-      "labels": ["A", "B", "C"]
+      "strategy": "full_labels",
+      "labels": ["Left Ventricle", "Right Ventricle", "Aorta", "Pulmonary Artery"]
     },
     "style": {
       "medium": "digital_illustration",
       "aesthetic": "minimalist"
     },
     "advanced": {
-      "negative_prompt": ["text", "words", "labels", "watermark", "signature", "caption", "title", "handwriting"],
+      "negative_prompt": ["watermark", "signature", "caption", "handwriting", "blurry"],
       "hdr_mode": true
     }
   },
@@ -94,23 +94,23 @@ Return ONLY valid JSON matching this structure (no markdown, no explanation):
   "complexity": "standard" or "complex",
   "complexity_reason": "Brief reason for complexity choice",
   "labels": {
-    "Panel A": { "1": "Structure name — brief description" },
-    "Panel B": { "2": "Structure name — brief description" }
+    "Left Ventricle": "Thickest-walled chamber, pumps oxygenated blood to systemic circulation",
+    "Right Ventricle": "Thinner-walled chamber, pumps deoxygenated blood to pulmonary circulation"
   }
 }
 
 ## Rules
 
-1. **No text in images**: Set text.enabled to false ALWAYS. Add all text-related terms to negative_prompt. Gemini cannot reliably render medical terminology — it will misspell.
-2. **Alphabet-only labeling**: Use only single letters (A, B, C) or numbers (1, 2, 3) as labels on the image. Map each label to its meaning in the "labels" object. The legend will be rendered separately as text.
+1. **Full anatomical labels**: Include complete anatomical terms directly on the image. Gemini 3.1 models render medical text labels correctly. Set text.enabled to true. List every label in the "labeling.labels" array and provide descriptions in the "labels" object. The image should be **self-explanatory** — a student should understand the diagram without needing a separate legend.
+2. **Label placement**: In the scene description, specify WHERE each label appears and what it points to. Use leader lines or arrows connecting labels to structures. E.g., "Label 'Left Ventricle' with an arrow pointing to the thick-walled lower-left chamber."
 3. **Complexity assessment**:
    - "standard" → Simple illustrations, single-concept, 1-2 panels. Uses Gemini Flash (fast).
    - "complex" → Multi-panel layouts (3+), detailed anatomical cross-sections, pathway diagrams with many nodes, comparison diagrams. Uses Gemini Pro (slower, higher quality).
-4. **Scene description must be explicit**: Don't say "show the heart". Say "A four-chamber cross-section of the human heart viewed from the anterior perspective. The left ventricle (label A) is shown with thicker myocardial wall in deep red. The right ventricle (label B) has thinner walls in lighter red..."
+4. **Scene description must be explicit**: Don't say "show the heart". Say "A four-chamber cross-section of the human heart viewed from the anterior perspective. The left ventricle is shown with thicker myocardial wall in deep red, labeled 'Left Ventricle' with a leader line. The right ventricle has thinner walls in lighter red, labeled 'Right Ventricle'..."
 5. **Medical accuracy**: Anatomical proportions, spatial relationships, and structural details must be correct. If you're unsure about an anatomical detail, describe the general concept rather than specific structures.
 6. **Panel layouts**: For multi-panel images, explicitly describe the grid arrangement. E.g., "2x2 grid: Panel A (top-left) shows X, Panel B (top-right) shows Y..."
 7. **Color coding**: Use consistent, education-standard colors: arteries in red, veins in blue, nerves in yellow, lymph in green, bone in off-white.
-8. **Style**: Default to clean digital illustration with white/light background. Medical textbook aesthetic. No photorealistic style unless specifically needed.`;
+8. **Style**: Default to clean digital illustration with white/light background. Medical textbook aesthetic. No photorealistic style unless specifically needed. Labels should be in a clean sans-serif font with high contrast against the background.`;
 
 /**
  * Build the user prompt for Claude's enhancement step.
