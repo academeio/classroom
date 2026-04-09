@@ -71,6 +71,7 @@ const IMAGE_ENV_MAP: Record<string, string> = {
   IMAGE_SEEDREAM: 'seedream',
   IMAGE_QWEN_IMAGE: 'qwen-image',
   IMAGE_NANO_BANANA: 'nano-banana',
+  IMAGE_GEMINI_MEDICAL: 'gemini-medical',
 };
 
 const VIDEO_ENV_MAP: Record<string, string> = {
