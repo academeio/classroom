@@ -68,6 +68,23 @@ function getVoiceForAction(action: Record<string, unknown>): string {
   return voice;
 }
 
+/**
+ * Preprocess speech text for TTS. Sarvam reads raw digits poorly
+ * (e.g., "10-12 cm" becomes "one-zero to one-two cm").
+ * Expand number ranges and clean up for natural speech.
+ */
+function preprocessForTTS(text: string): string {
+  return text
+    // "10-12 cm" → "10 to 12 cm" (number ranges with hyphen)
+    .replace(/(\d+)\s*[-–—]\s*(\d+)/g, '$1 to $2')
+    // "3-4x" → "3 to 4x"
+    .replace(/(\d+)\s*[-–—]\s*(\d+)([a-zA-Z])/g, '$1 to $2$3')
+    // Ensure space around units: "10cm" → "10 cm"
+    .replace(/(\d)(cm|mm|kg|mg|ml|mmHg|mL|dL|µm|nm)\b/gi, '$1 $2')
+    // "%" spoken as "percent"
+    .replace(/(\d)\s*%/g, '$1 percent');
+}
+
 async function generateTTSViaSarvam(
   text: string,
   voice: string,
@@ -76,7 +93,8 @@ async function generateTTSViaSarvam(
   const apiKey = process.env.SARVAM_API_KEY;
   if (!apiKey) throw new Error('SARVAM_API_KEY not set in .env.local');
 
-  const truncatedText = text.length > 2400 ? text.substring(0, 2400) + '.' : text;
+  const processed = preprocessForTTS(text);
+  const truncatedText = processed.length > 2400 ? processed.substring(0, 2400) + '.' : processed;
 
   const resp = await fetch('https://api.sarvam.ai/text-to-speech', {
     method: 'POST',

@@ -52,6 +52,16 @@ function parseArgs() {
   return parsed;
 }
 
+// ── TTS text preprocessing ──
+
+function preprocessForTTS(text: string): string {
+  return text
+    .replace(/(\d+)\s*[-–—]\s*(\d+)/g, '$1 to $2')
+    .replace(/(\d+)\s*[-–—]\s*(\d+)([a-zA-Z])/g, '$1 to $2$3')
+    .replace(/(\d)(cm|mm|kg|mg|ml|mmHg|mL|dL|µm|nm)\b/gi, '$1 $2')
+    .replace(/(\d)\s*%/g, '$1 percent');
+}
+
 // ── TTS Generation via Sarvam AI ──
 
 async function generateTTSViaSarvam(
@@ -62,8 +72,8 @@ async function generateTTSViaSarvam(
   const apiKey = process.env.SARVAM_API_KEY;
   if (!apiKey) throw new Error('SARVAM_API_KEY not set in .env.local');
 
-  // Sarvam limit: 2500 chars. Truncate if needed.
-  const truncatedText = text.length > 2400 ? text.substring(0, 2400) + '.' : text;
+  const processed = preprocessForTTS(text);
+  const truncatedText = processed.length > 2400 ? processed.substring(0, 2400) + '.' : processed;
 
   const resp = await fetch('https://api.sarvam.ai/text-to-speech', {
     method: 'POST',
