@@ -124,8 +124,8 @@ export default function ClassroomDetailPage() {
     const { outlines, scenes, stage } = state;
 
     // Check if there are pending outlines
-    const completedOrders = new Set(scenes.map((s) => s.order));
-    const hasPending = outlines.some((o) => !completedOrders.has(o.order));
+    // For pre-generated classrooms, scenes may not have order field — use scene count instead
+    const hasPending = outlines.length > 0 && scenes.length < outlines.length;
 
     if (hasPending && stage) {
       generationStartedRef.current = true;
