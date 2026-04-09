@@ -9,10 +9,8 @@
  * so this is a same-DB query, not a cross-service call.
  */
 
-import { neon } from '@neondatabase/serverless';
+import { getDb } from '@/lib/neon/client';
 import { saveImage } from '@/lib/storage/neon-image-store';
-
-const sql = neon(process.env.DATABASE_URL!);
 
 interface CapsuleImage {
   slug: string;
@@ -34,6 +32,7 @@ async function findMatchingCapsuleImage(
   if (searchTerms.length === 0) return null;
 
   try {
+    const sql = getDb();
     // Search by tags overlap — find images whose tags intersect with search terms
     const rows = await sql`
       SELECT slug, title, alt_text, bunny_url, image_type, tags, quality_score
