@@ -631,8 +631,10 @@ async function main() {
       (a: Record<string, unknown>) => a.type === 'speech' && a.text,
     );
     for (const action of speechActions) {
-      const audioId = action.audioId as string | undefined;
+      // Use action.id as audioId (same as prerender-tts.ts), assign it back for preloader
+      const audioId = (action.id || action.audioId) as string | undefined;
       if (!audioId) continue;
+      action.audioId = audioId;
 
       const text = action.text as string;
       const voice = getVoiceForAction(action);
