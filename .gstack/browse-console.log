@@ -1,0 +1,27 @@
+[2026-04-09T08:41:14.340Z] [error] Failed to load resource: the server responded with a status of 404 ()
+[2026-04-09T08:41:14.589Z] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-09T08:41:14.709Z] [log] %c🐇 bunny%c.net
+%c~ Making the internet hop faster! ~ filter: invert(1); font-size: 28px; font-weight: bolder; font-family: "Rubik"; margin-top: 20px; margin-bottom: 8px; color: #ff7755; font-size: 28px; font-weight: bolder; font-family: "Rubik" color: #9bcdf1; font-size: 16px; font-family: "Rubik"; margin-bottom: 20px;
+[2026-04-09T08:41:28.465Z] [log] %c🐇 bunny%c.net
+%c~ Making the internet hop faster! ~ filter: invert(1); font-size: 28px; font-weight: bolder; font-family: "Rubik"; margin-top: 20px; margin-bottom: 8px; color: #ff7755; font-size: 28px; font-weight: bolder; font-family: "Rubik" color: #9bcdf1; font-size: 16px; font-family: "Rubik"; margin-bottom: 20px;
+[2026-04-09T08:41:28.930Z] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-09T08:41:29.594Z] [error] Failed to load resource: the server responded with a status of 404 ()
+[2026-04-09T08:41:29.836Z] [error] Error: Minified React error #418; visit https://reactjs.org/docs/error-decoder.html?invariant=418 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at sa (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:48539)
+    at xi (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:121291)
+    at bs (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:108861)
+    at vs (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:108789)
+    at gs (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:108652)
+    at ls (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:103815)
+    at S (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:137708)
+    at MessagePort.T (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:138240)
+[2026-04-09T08:41:29.836Z] [error] Error: Minified React error #418; visit https://reactjs.org/docs/error-decoder.html?invariant=418 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at sa (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:48539)
+    at xi (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:121291)
+    at bs (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:108861)
+    at vs (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:108789)
+    at gs (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:108652)
+    at ls (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:103815)
+    at S (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:137708)
+    at MessagePort.T (https://bunny.net/framework-5c94f8705ee981d74e43.js:2:138240)
+[2026-04-09T08:41:38.917Z] [error] Failed to load resource: net::ERR_NAME_NOT_RESOLVED
