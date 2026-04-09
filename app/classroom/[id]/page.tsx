@@ -12,6 +12,7 @@ import { useWhiteboardHistoryStore } from '@/lib/store/whiteboard-history';
 import { createLogger } from '@/lib/logger';
 import { MediaStageProvider } from '@/lib/contexts/media-stage-context';
 import { generateMediaForOutlines } from '@/lib/media/media-orchestrator';
+import { preloadFromManifest, preloadClassroomAudio } from '@/lib/utils/audio-preloader';
 
 const log = createLogger('Classroom');
 
@@ -36,6 +37,8 @@ export default function ClassroomDetailPage() {
     try {
       await loadFromStorage(classroomId);
 
+      let manifestUrl: string | undefined;
+
       // If IndexedDB had no data, try server-side storage (API-generated classrooms)
       if (!useStageStore.getState().stage) {
         log.info('No IndexedDB data, trying server-side storage for:', classroomId);
@@ -44,22 +47,14 @@ export default function ClassroomDetailPage() {
           if (res.ok) {
             const json = await res.json();
             if (json.success && json.classroom) {
-              const { stage, scenes } = json.classroom;
+              const { stage, scenes, manifestUrl: mUrl } = json.classroom;
+              manifestUrl = mUrl as string | undefined;
               useStageStore.getState().setStage(stage);
               useStageStore.setState({
                 scenes,
                 currentSceneId: scenes[0]?.id ?? null,
               });
               log.info('Loaded from server-side storage:', classroomId);
-
-              // Hydrate server-generated agents into IndexedDB + registry
-              if (stage.generatedAgentConfigs?.length) {
-                const { saveGeneratedAgents } = await import('@/lib/orchestration/registry/store');
-                const { useSettingsStore } = await import('@/lib/store/settings');
-                const agentIds = await saveGeneratedAgents(stage.id, stage.generatedAgentConfigs);
-                useSettingsStore.getState().setSelectedAgentIds(agentIds);
-                log.info('Hydrated server-generated agents:', agentIds);
-              }
             }
           }
         } catch (fetchErr) {
@@ -67,34 +62,26 @@ export default function ClassroomDetailPage() {
         }
       }
 
+      // Pre-load TTS audio: use R2 manifest if available, fall back to Neon API
+      if (manifestUrl) {
+        preloadFromManifest(manifestUrl).catch((err) => {
+          log.warn('R2 audio pre-load failed, trying Neon fallback:', err);
+          preloadClassroomAudio(classroomId).catch(() => {});
+        });
+      } else {
+        preloadClassroomAudio(classroomId).catch((err) => {
+          log.warn('Audio pre-load failed (playback will use server TTS fallback):', err);
+        });
+      }
+
       // Restore completed media generation tasks from IndexedDB
       await useMediaGenerationStore.getState().restoreFromDB(classroomId);
-      // Restore agents for this stage
-      const { loadGeneratedAgentsForStage, useAgentRegistry } =
-        await import('@/lib/orchestration/registry/store');
-      const generatedAgentIds = await loadGeneratedAgentsForStage(classroomId);
-      const { useSettingsStore } = await import('@/lib/store/settings');
-      if (generatedAgentIds.length > 0) {
-        // Auto mode — use generated agents from IndexedDB
-        useSettingsStore.getState().setAgentMode('auto');
-        useSettingsStore.getState().setSelectedAgentIds(generatedAgentIds);
-      } else {
-        // Preset mode — restore agent IDs saved in the stage at creation time.
-        // Filter out any stale generated IDs that may have been persisted before
-        // the bleed-fix, so they don't resolve against a leftover registry entry.
-        const stage = useStageStore.getState().stage;
-        const stageAgentIds = stage?.agentIds;
-        const registry = useAgentRegistry.getState();
-        const cleanIds = stageAgentIds?.filter((id) => {
-          const a = registry.getAgent(id);
-          return a && !a.isGenerated;
-        });
-        useSettingsStore.getState().setAgentMode('preset');
-        useSettingsStore
-          .getState()
-          .setSelectedAgentIds(
-            cleanIds && cleanIds.length > 0 ? cleanIds : ['default-1', 'default-2', 'default-3'],
-          );
+      // Restore generated agents for this stage
+      const { loadGeneratedAgentsForStage } = await import('@/lib/orchestration/registry/store');
+      const agentIds = await loadGeneratedAgentsForStage(classroomId);
+      if (agentIds.length > 0) {
+        const { useSettingsStore } = await import('@/lib/store/settings');
+        useSettingsStore.getState().setSelectedAgentIds(agentIds);
       }
     } catch (error) {
       log.error('Failed to load classroom:', error);

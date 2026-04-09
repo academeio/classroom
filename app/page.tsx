@@ -20,13 +20,13 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
-import { LanguageSwitcher } from '@/components/language-switcher';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
 import { Textarea as UITextarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { SettingsDialog } from '@/components/settings';
 import { GenerationToolbar } from '@/components/generation/generation-toolbar';
+import { CompetencySelector } from '@/components/generation/competency-selector';
 import { AgentBar } from '@/components/agent/agent-bar';
 import { useTheme } from '@/lib/hooks/use-theme';
 import { nanoid } from 'nanoid';
@@ -38,7 +38,6 @@ import {
   StageListItem,
   listStages,
   deleteStageData,
-  renameStage,
   getFirstSlideByStages,
 } from '@/lib/utils/stage-storage';
 import { ThumbnailSlide } from '@/components/slide-renderer/components/ThumbnailSlide';
@@ -70,10 +69,11 @@ const initialFormState: FormState = {
 };
 
 function HomePage() {
-  const { t } = useI18n();
+  const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
   const router = useRouter();
   const [form, setForm] = useState<FormState>(initialFormState);
+  const [selectedCompetencies, setSelectedCompetencies] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<
     import('@/lib/types/settings').SettingsSection | undefined
@@ -85,11 +85,13 @@ function HomePage() {
 
   // Model setup state
   const currentModelId = useSettingsStore((s) => s.modelId);
+  const [storeHydrated, setStoreHydrated] = useState(false);
   const [recentOpen, setRecentOpen] = useState(true);
 
   // Hydrate client-only state after mount (avoids SSR mismatch)
   /* eslint-disable react-hooks/set-state-in-effect -- Hydration from localStorage must happen in effect */
   useEffect(() => {
+    setStoreHydrated(true);
     try {
       const saved = localStorage.getItem(RECENT_OPEN_STORAGE_KEY);
       if (saved !== null) setRecentOpen(saved !== 'false');
@@ -125,6 +127,8 @@ function HomePage() {
     }
   }
 
+  const needsSetup = storeHydrated && !currentModelId;
+  const [languageOpen, setLanguageOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [classrooms, setClassrooms] = useState<StageListItem[]>([]);
@@ -135,15 +139,16 @@ function HomePage() {
 
   // Close dropdowns when clicking outside
   useEffect(() => {
-    if (!themeOpen) return;
+    if (!languageOpen && !themeOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
+        setLanguageOpen(false);
         setThemeOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [themeOpen]);
+  }, [languageOpen, themeOpen]);
 
   const loadClassrooms = async () => {
     try {
@@ -183,16 +188,6 @@ function HomePage() {
     } catch (err) {
       log.error('Failed to delete classroom:', err);
       toast.error('Failed to delete classroom');
-    }
-  };
-
-  const handleRename = async (id: string, newName: string) => {
-    try {
-      await renameStage(id, newName);
-      setClassrooms((prev) => prev.map((c) => (c.id === id ? { ...c, name: newName } : c)));
-    } catch (err) {
-      log.error('Failed to rename classroom:', err);
-      toast.error(t('classroom.renameFailed'));
     }
   };
 
@@ -264,6 +259,7 @@ function HomePage() {
         userNickname: userProfile.nickname || undefined,
         userBio: userProfile.bio || undefined,
         webSearch: form.webSearch || undefined,
+        competencyCodes: selectedCompetencies.length > 0 ? selectedCompetencies : undefined,
       };
 
       let pdfStorageKey: string | undefined;
@@ -337,7 +333,47 @@ function HomePage() {
         className="fixed top-4 right-4 z-50 flex items-center gap-1 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md px-2 py-1.5 rounded-full border border-gray-100/50 dark:border-gray-700/50 shadow-sm"
       >
         {/* Language Selector */}
-        <LanguageSwitcher onOpen={() => setThemeOpen(false)} />
+        <div className="relative">
+          <button
+            onClick={() => {
+              setLanguageOpen(!languageOpen);
+              setThemeOpen(false);
+            }}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all"
+          >
+            {locale === 'zh-CN' ? 'CN' : 'EN'}
+          </button>
+          {languageOpen && (
+            <div className="absolute top-full mt-2 right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg overflow-hidden z-50 min-w-[120px]">
+              <button
+                onClick={() => {
+                  setLocale('zh-CN');
+                  setLanguageOpen(false);
+                }}
+                className={cn(
+                  'w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors',
+                  locale === 'zh-CN' &&
+                    'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400',
+                )}
+              >
+                简体中文
+              </button>
+              <button
+                onClick={() => {
+                  setLocale('en-US');
+                  setLanguageOpen(false);
+                }}
+                className={cn(
+                  'w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors',
+                  locale === 'en-US' &&
+                    'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400',
+                )}
+              >
+                English
+              </button>
+            </div>
+          )}
+        </div>
 
         <div className="w-[1px] h-4 bg-gray-200 dark:bg-gray-700" />
 
@@ -346,6 +382,7 @@ function HomePage() {
           <button
             onClick={() => {
               setThemeOpen(!themeOpen);
+              setLanguageOpen(false);
             }}
             className="p-2 rounded-full text-gray-400 dark:text-gray-500 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all"
           >
@@ -407,10 +444,24 @@ function HomePage() {
         <div className="relative">
           <button
             onClick={() => setSettingsOpen(true)}
-            className="p-2 rounded-full text-gray-400 dark:text-gray-500 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all group"
+            className={cn(
+              'p-2 rounded-full text-gray-400 dark:text-gray-500 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all group',
+              needsSetup && 'animate-setup-glow',
+            )}
           >
             <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform duration-500" />
           </button>
+          {needsSetup && (
+            <>
+              <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">
+                <span className="animate-setup-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-violet-500" />
+              </span>
+              <span className="animate-setup-float absolute top-full mt-2 right-0 whitespace-nowrap text-[11px] font-medium text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-800/50 px-2 py-0.5 rounded-full shadow-sm pointer-events-none">
+                {t('settings.setupNeeded')}
+              </span>
+            </>
+          )}
         </div>
       </div>
       <SettingsDialog
@@ -447,7 +498,7 @@ function HomePage() {
         {/* ── Logo ── */}
         <motion.img
           src="/logo-horizontal.png"
-          alt="OpenMAIC"
+          alt="Academe Classroom"
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{
@@ -495,6 +546,14 @@ function HomePage() {
               onKeyDown={handleKeyDown}
               rows={4}
             />
+
+            {/* Competency selector */}
+            <div className="px-3 pb-1">
+              <CompetencySelector
+                selectedCodes={selectedCompetencies}
+                onChange={setSelectedCompetencies}
+              />
+            </div>
 
             {/* Toolbar row */}
             <div className="px-3 pb-3 flex items-end gap-2">
@@ -622,7 +681,6 @@ function HomePage() {
                         slide={thumbnails[classroom.id]}
                         formatDate={formatDate}
                         onDelete={handleDelete}
-                        onRename={handleRename}
                         confirmingDelete={pendingDeleteId === classroom.id}
                         onConfirmDelete={() => confirmDelete(classroom.id)}
                         onCancelDelete={() => setPendingDeleteId(null)}
@@ -639,7 +697,7 @@ function HomePage() {
 
       {/* Footer — flows with content, at the very end */}
       <div className="mt-auto pt-12 pb-4 text-center text-xs text-muted-foreground/40">
-        OpenMAIC Open Source Project
+        Powered by Academe
       </div>
     </div>
   );
@@ -755,8 +813,13 @@ function GreetingBar() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="leading-none select-none flex items-center gap-1">
-                  <span className="text-[13px] font-semibold text-foreground/85 group-hover:text-foreground transition-colors">
-                    {t('home.greetingWithName', { name: displayName })}
+                  <span>
+                    <span className="text-xs text-muted-foreground/60 group-hover:text-muted-foreground transition-colors">
+                      {t('home.greeting')}
+                    </span>
+                    <span className="text-[13px] font-semibold text-foreground/85 group-hover:text-foreground transition-colors">
+                      {displayName}
+                    </span>
                   </span>
                   <ChevronDown className="size-3 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors shrink-0" />
                 </span>
@@ -936,7 +999,6 @@ function ClassroomCard({
   slide,
   formatDate,
   onDelete,
-  onRename,
   confirmingDelete,
   onConfirmDelete,
   onCancelDelete,
@@ -946,7 +1008,6 @@ function ClassroomCard({
   slide?: Slide;
   formatDate: (ts: number) => string;
   onDelete: (id: string, e: React.MouseEvent) => void;
-  onRename: (id: string, newName: string) => void;
   confirmingDelete: boolean;
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
@@ -955,9 +1016,6 @@ function ClassroomCard({
   const { t } = useI18n();
   const thumbRef = useRef<HTMLDivElement>(null);
   const [thumbWidth, setThumbWidth] = useState(0);
-  const [editing, setEditing] = useState(false);
-  const [nameDraft, setNameDraft] = useState('');
-  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const el = thumbRef.current;
@@ -968,25 +1026,6 @@ function ClassroomCard({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-
-  useEffect(() => {
-    if (editing) nameInputRef.current?.focus();
-  }, [editing]);
-
-  const startRename = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setNameDraft(classroom.name);
-    setEditing(true);
-  };
-
-  const commitRename = () => {
-    if (!editing) return;
-    const trimmed = nameDraft.trim();
-    if (trimmed && trimmed !== classroom.name) {
-      onRename(classroom.id, trimmed);
-    }
-    setEditing(false);
-  };
 
   return (
     <div className="group cursor-pointer" onClick={confirmingDelete ? undefined : onClick}>
@@ -1030,14 +1069,6 @@ function ClassroomCard({
               >
                 <Trash2 className="size-3.5" />
               </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="absolute top-2 right-11 size-7 opacity-0 group-hover:opacity-100 transition-opacity bg-black/30 hover:bg-black/50 text-white hover:text-white backdrop-blur-sm rounded-full"
-                onClick={startRename}
-              >
-                <Pencil className="size-3.5" />
-              </Button>
             </motion.div>
           )}
         </AnimatePresence>
@@ -1080,53 +1111,32 @@ function ClassroomCard({
         <span className="shrink-0 inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-[11px] font-medium text-violet-600 dark:text-violet-400">
           {classroom.sceneCount} {t('classroom.slides')} · {formatDate(classroom.updatedAt)}
         </span>
-        {editing ? (
-          <div className="flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
-            <input
-              ref={nameInputRef}
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') commitRename();
-                if (e.key === 'Escape') setEditing(false);
-              }}
-              onBlur={commitRename}
-              maxLength={100}
-              placeholder={t('classroom.renamePlaceholder')}
-              className="w-full bg-transparent border-b border-violet-400/60 text-[15px] font-medium text-foreground/90 outline-none placeholder:text-muted-foreground/40"
-            />
-          </div>
-        ) : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <p
-                className="font-medium text-[15px] truncate text-foreground/90 min-w-0 cursor-text"
-                onDoubleClick={startRename}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <p className="font-medium text-[15px] truncate text-foreground/90 min-w-0">
+              {classroom.name}
+            </p>
+          </TooltipTrigger>
+          <TooltipContent
+            side="bottom"
+            sideOffset={4}
+            className="!max-w-[min(90vw,32rem)] break-words whitespace-normal"
+          >
+            <div className="flex items-center gap-1.5">
+              <span className="break-all">{classroom.name}</span>
+              <button
+                className="shrink-0 p-0.5 rounded hover:bg-foreground/10 transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(classroom.name);
+                  toast.success(t('classroom.nameCopied'));
+                }}
               >
-                {classroom.name}
-              </p>
-            </TooltipTrigger>
-            <TooltipContent
-              side="bottom"
-              sideOffset={4}
-              className="!max-w-[min(90vw,32rem)] break-words whitespace-normal"
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="break-all">{classroom.name}</span>
-                <button
-                  className="shrink-0 p-0.5 rounded hover:bg-foreground/10 transition-colors"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigator.clipboard.writeText(classroom.name);
-                    toast.success(t('classroom.nameCopied'));
-                  }}
-                >
-                  <Copy className="size-3 opacity-60" />
-                </button>
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        )}
+                <Copy className="size-3 opacity-60" />
+              </button>
+            </div>
+          </TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );
