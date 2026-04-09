@@ -28,9 +28,84 @@ import { saveClassroom } from '../lib/storage/neon-classroom-store';
 import { saveAudio, getClassroomAudio } from '../lib/storage/neon-audio-store';
 import { saveImage } from '../lib/storage/neon-image-store';
 import sharp from 'sharp';
-import { generateTTS } from '../lib/audio/tts-providers';
-import { resolveTTSApiKey, resolveTTSBaseUrl } from '../lib/server/provider-config';
 import { fallbackToExistingImage } from '../lib/media/adapters/gemini-medical-fallback';
+import { SARVAM_VOICE_MAP } from '../lib/orchestration/registry/medical-agents';
+
+// ── Sarvam TTS with 2-voice alternating ──
+
+const MALE_VOICES = ['rahul', 'amit', 'dev', 'varun'];
+const FEMALE_VOICES = ['kavitha', 'priya', 'kavya', 'shreya', 'simran'];
+
+let classroomVoicePair: [string, string] = ['kavitha', 'rahul'];
+let voiceAlternateIndex = 0;
+
+function pickVoicePair(): [string, string] {
+  const male = MALE_VOICES[Math.floor(Math.random() * MALE_VOICES.length)];
+  const female = FEMALE_VOICES[Math.floor(Math.random() * FEMALE_VOICES.length)];
+  return [female, male];
+}
+
+function getVoiceForAction(action: Record<string, unknown>): string {
+  const agentId = (action.agentId || action.speakerId || '') as string;
+  if (agentId && SARVAM_VOICE_MAP[agentId]) return SARVAM_VOICE_MAP[agentId];
+
+  const agentName = (action.agentName || action.speaker || '') as string;
+  const nameMap: Record<string, string> = {
+    'Kavitha': 'kavitha', 'Dr. Kavitha': 'kavitha',
+    'Rajesh': 'rahul', 'Dr. Rajesh': 'rahul',
+    'Priya': 'priya', 'Dr. Priya': 'priya',
+    'Arun': 'amit', 'Dr. Arun': 'amit',
+    'Meera': 'shreya', 'Dr. Meera': 'shreya',
+    'Ananya': 'kavya', 'Vikram': 'varun',
+    'Fatima': 'simran', 'Deepak': 'dev',
+  };
+  for (const [name, voice] of Object.entries(nameMap)) {
+    if (agentName.includes(name)) return voice;
+  }
+  // No agent match — alternate between the 2 selected voices
+  const voice = classroomVoicePair[voiceAlternateIndex % 2];
+  voiceAlternateIndex++;
+  return voice;
+}
+
+async function generateTTSViaSarvam(
+  text: string,
+  voice: string,
+  pace: number = 1.0,
+): Promise<{ base64: string; format: string }> {
+  const apiKey = process.env.SARVAM_API_KEY;
+  if (!apiKey) throw new Error('SARVAM_API_KEY not set in .env.local');
+
+  const truncatedText = text.length > 2400 ? text.substring(0, 2400) + '.' : text;
+
+  const resp = await fetch('https://api.sarvam.ai/text-to-speech', {
+    method: 'POST',
+    headers: {
+      'api-subscription-key': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      text: truncatedText,
+      target_language_code: 'en-IN',
+      model: 'bulbul:v3',
+      speaker: voice,
+      pace,
+      output_audio_codec: 'mp3',
+    }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`Sarvam API ${resp.status}: ${body}`);
+  }
+
+  const data = await resp.json();
+  if (!data.audios || !data.audios[0]) {
+    throw new Error('Sarvam API returned no audio');
+  }
+
+  return { base64: data.audios[0], format: 'mp3' };
+}
 
 // ── Types ──
 
@@ -540,18 +615,16 @@ async function main() {
     process.exit(1);
   }
 
-  // Step 6: Pre-render TTS audio for all speech actions
+  // Step 6: Pre-render TTS audio via Sarvam AI (2 alternating voices per classroom)
   const classroomId = nanoid(10);
-  console.log(`\n[6/7] Pre-rendering TTS audio...`);
-
-  const ttsProviderId = 'azure-tts' as const;
-  const ttsVoice = 'en-IN-NeerjaNeural';
-  const ttsSpeed = 1.0;
-  const ttsApiKey = resolveTTSApiKey(ttsProviderId);
-  const ttsBaseUrl = resolveTTSBaseUrl(ttsProviderId);
+  classroomVoicePair = pickVoicePair();
+  voiceAlternateIndex = 0;
+  console.log(`\n[6/7] Pre-rendering TTS audio via Sarvam AI...`);
+  console.log(`  Voices: ${classroomVoicePair[0]} (F) + ${classroomVoicePair[1]} (M)`);
 
   let ttsCount = 0;
   let ttsErrors = 0;
+  let ttsChars = 0;
 
   for (const scene of scenes) {
     const speechActions = (scene.actions || []).filter(
@@ -562,23 +635,14 @@ async function main() {
       if (!audioId) continue;
 
       const text = action.text as string;
-      process.stdout.write(`  TTS "${audioId}" (${text.length} chars)... `);
+      const voice = getVoiceForAction(action);
+      process.stdout.write(`  TTS "${audioId}" [${voice}] (${text.length} chars)... `);
       try {
-        const { audio, format } = await generateTTS(
-          {
-            providerId: ttsProviderId,
-            voice: ttsVoice,
-            speed: ttsSpeed,
-            apiKey: ttsApiKey,
-            baseUrl: ttsBaseUrl,
-          },
-          text,
-        );
-
-        const base64 = Buffer.from(audio).toString('base64');
+        const { base64, format } = await generateTTSViaSarvam(text, voice);
         await saveAudio(audioId, classroomId, base64, format);
         ttsCount++;
-        console.log(`done (${Math.round(base64.length / 1024)}KB)`);
+        ttsChars += text.length;
+        console.log(`done (${Math.round(base64.length * 0.75 / 1024)}KB)`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.log(`FAILED: ${msg}`);
@@ -588,7 +652,7 @@ async function main() {
     }
   }
 
-  console.log(`  Pre-rendered ${ttsCount} audio files (${ttsErrors} errors).`);
+  console.log(`  Pre-rendered ${ttsCount} audio files (${ttsErrors} errors, ${ttsChars} chars).`);
 
   // Replace gen_img_* placeholders with actual base64 data URLs in scene elements
   if (Object.keys(generatedImages).length > 0) {
