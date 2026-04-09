@@ -146,7 +146,8 @@ interface CliArgs {
   baseUrl: string;
   password: string;
   model?: string;
-  enhancedPrompts?: string; // Path to pre-generated enhanced prompts JSON
+  enhancedPrompts?: string; // Path to pre-generated enhanced image prompts JSON
+  preGenerated?: string; // Path to directory with pre-generated outlines.json + scenes.json
 }
 
 // ── Argument parsing ──
@@ -162,7 +163,7 @@ function parseArgs(): CliArgs {
     }
   }
 
-  if (!parsed.topic || !parsed.requirement || !parsed.password) {
+  if (!parsed.topic || (!parsed.requirement && !parsed['pre-generated']) || !parsed.password) {
     console.error(`
 Usage:
   npx tsx scripts/generate-classroom.ts \\
@@ -172,10 +173,11 @@ Usage:
     --requirement "Full description of the classroom..." \\
     --competencies "AN10.3,AN10.5" \\
     --model "anthropic:claude-sonnet-4-latest" \\
-    --enhanced-prompts "/tmp/enhanced-prompts.json"
+    --enhanced-prompts "/tmp/enhanced-prompts.json" \\
+    --pre-generated "/tmp/classroom-spec/"
 
-Required: --topic, --requirement, --password
-Optional: --base-url, --competencies, --model, --enhanced-prompts
+Required: --topic, --password (--requirement optional if --pre-generated)
+Optional: --base-url, --competencies, --model, --enhanced-prompts, --pre-generated
 `);
     process.exit(1);
   }
@@ -188,6 +190,7 @@ Optional: --base-url, --competencies, --model, --enhanced-prompts
     password: parsed.password,
     model: parsed.model,
     enhancedPrompts: parsed['enhanced-prompts'],
+    preGenerated: parsed['pre-generated'],
   };
 }
 
@@ -461,37 +464,74 @@ async function main() {
 
   console.log('=== Classroom Generation Script ===');
   console.log(`  Topic: ${args.topic}`);
-  console.log(`  Server: ${args.baseUrl}`);
-  console.log(`  Model: ${args.model || process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-latest'}`);
+  console.log(`  Mode: ${args.preGenerated ? 'PRE-GENERATED (no API calls)' : 'SERVER API'}`);
 
   const startTime = Date.now();
-
-  // Step 1: Authenticate
-  await authenticate(args.baseUrl, args.password);
-
-  // Step 2: Enrich competencies (optional)
-  let enrichedText = '';
+  const stageId = nanoid(10);
+  const classroomId = nanoid(10);
+  let outlines: SceneOutline[] = [];
+  let scenes: any[] = [];
   let competencyCodes: string[] = [];
   let subjectCodes: string[] = [];
+  const errors: string[] = [];
 
   if (args.competencies) {
     competencyCodes = args.competencies.split(',').map((c) => c.trim());
-    const enriched = await enrichCompetencies(args.baseUrl, competencyCodes);
-    enrichedText = enriched.enrichedText;
-    subjectCodes = enriched.subjectCodes;
-  } else {
-    console.log('\n[2/7] Skipping competency enrichment (no --competencies provided).');
   }
 
-  // Build full requirement text
-  const fullRequirement = args.requirement + enrichedText;
+  // ── PRE-GENERATED MODE: Read outlines + scenes from files, skip all API calls ──
+  if (args.preGenerated) {
+    const dir = args.preGenerated.replace(/\/$/, '');
+    console.log(`  Reading pre-generated content from: ${dir}`);
 
-  // Step 3: Generate outlines
-  const outlines = await generateOutlines(args.baseUrl, fullRequirement, 'en-US', args.model);
+    const outlinesPath = `${dir}/outlines.json`;
+    const scenesPath = `${dir}/scenes.json`;
 
-  // Create stage
-  const stageId = nanoid(10);
-  const classroomId = nanoid(10);
+    if (!existsSync(outlinesPath)) {
+      console.error(`  ERROR: ${outlinesPath} not found.`);
+      console.error(`\n  To generate content, create a Claude Code agent with this prompt:`);
+      console.error(`  "Read the OpenMAIC generation prompts in lib/generation/prompts/templates/`);
+      console.error(`   and generate outlines + scene content + actions for topic: ${args.topic}"`);
+      console.error(`  Save outlines.json and scenes.json to ${dir}/`);
+      process.exit(1);
+    }
+
+    outlines = JSON.parse(readFileSync(outlinesPath, 'utf-8'));
+    console.log(`  Loaded ${outlines.length} outlines from ${outlinesPath}`);
+
+    if (existsSync(scenesPath)) {
+      scenes = JSON.parse(readFileSync(scenesPath, 'utf-8'));
+      console.log(`  Loaded ${scenes.length} scenes from ${scenesPath}`);
+    }
+
+    console.log('  Steps 1-5 (auth, competencies, outlines, content, actions) SKIPPED — using pre-generated files.');
+  }
+
+  // ── SERVER API MODE: Use server API routes (requires Anthropic API credits) ──
+  if (!args.preGenerated) {
+    console.log(`  Server: ${args.baseUrl}`);
+    console.log(`  Model: ${args.model || process.env.DEFAULT_MODEL || 'anthropic:claude-sonnet-4-latest'}`);
+
+    // Step 1: Authenticate
+    await authenticate(args.baseUrl, args.password);
+
+    // Step 2: Enrich competencies (optional)
+    let enrichedText = '';
+    if (args.competencies) {
+      const enriched = await enrichCompetencies(args.baseUrl, competencyCodes);
+      enrichedText = enriched.enrichedText;
+      subjectCodes = enriched.subjectCodes;
+    } else {
+      console.log('\n[2/7] Skipping competency enrichment (no --competencies provided).');
+    }
+
+    // Build full requirement text
+    const fullRequirement = (args.requirement || args.topic) + enrichedText;
+
+    // Step 3: Generate outlines
+    outlines = await generateOutlines(args.baseUrl, fullRequirement, 'en-US', args.model);
+  }
+
   const stage = {
     id: stageId,
     name: args.topic,
@@ -637,10 +677,10 @@ async function main() {
     console.log('\n[3b/7] No image generation requests in outlines.');
   }
 
-  // Step 4: Generate content for each scene
+  // Steps 4+5: Generate content and actions (skip if pre-generated scenes exist)
+  if (scenes.length === 0 && !args.preGenerated) {
   console.log(`\n[4/7] Generating scene content (${outlines.length} scenes)...`);
   const sceneContents: Array<{ content: any; effectiveOutline: SceneOutline }> = [];
-  const errors: string[] = [];
 
   for (let i = 0; i < outlines.length; i++) {
     const outline = outlines[i];
@@ -667,7 +707,6 @@ async function main() {
 
   // Step 5: Generate actions for each scene
   console.log(`\n[5/7] Generating scene actions...`);
-  const scenes: any[] = [];
   let previousSpeeches: string[] = [];
 
   for (let i = 0; i < sceneContents.length; i++) {
@@ -697,6 +736,7 @@ async function main() {
       errors.push(`Actions[${effectiveOutline.title}]: ${msg}`);
     }
   }
+  } // end of !preGenerated block
 
   if (scenes.length === 0) {
     console.error('\nNo scenes were generated successfully. Aborting.');
