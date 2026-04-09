@@ -1,11 +1,14 @@
 /**
  * Gemini Medical Image Adapter
  *
- * Two-step generation for medically accurate diagrams:
- * 1. Claude Sonnet enhances the raw prompt into structured JSON + selects model
- * 2. Gemini generates the image using the enhanced prompt
+ * Builds structured image prompts deterministically (no LLM API calls)
+ * and sends them to Gemini 3.1 Flash/Pro for generation.
  *
- * Falls back to pre-existing images from cbme pipeline on failure.
+ * Prompt construction uses rules from the cbme pipeline:
+ * - Full anatomical labels with leader lines
+ * - Clean digital illustration style
+ * - Medical-standard color coding
+ * - Complexity-based model selection (Flash vs Pro)
  *
  * Follows the same adapter interface as seedream-adapter.ts, qwen-image-adapter.ts.
  */
@@ -16,13 +19,10 @@ import type {
   ImageGenerationResult,
 } from '../types';
 import {
-  PROMPT_ENHANCEMENT_SYSTEM,
-  buildEnhancementUserPrompt,
   GEMINI_FLASH,
   GEMINI_PRO,
   type GeminiMedicalPrompt,
 } from './gemini-medical-prompts';
-import { fallbackToExistingImage } from './gemini-medical-fallback';
 
 const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
 
@@ -47,77 +47,110 @@ interface GeminiResponse {
   };
 }
 
+// ── Complexity keywords for model selection ──
+
+const COMPLEX_KEYWORDS = [
+  'cross-section', 'cross section', 'pathway', 'cycle', 'mechanism',
+  'comparison', 'versus', 'vs', 'stages', 'phases', 'multi-panel',
+  'histology', 'microscopic', 'cellular', 'metabolic', 'cascade',
+  'feedback loop', 'regulation', 'innervation', 'vascular supply',
+  'lymphatic', 'embryology', 'development',
+];
+
 /**
- * Call Claude Sonnet to enhance a raw image prompt into structured JSON.
- * Returns the structured prompt + model selection.
+ * Assess complexity from the raw prompt to decide Flash vs Pro.
  */
-async function enhancePromptWithClaude(
-  rawPrompt: string,
-  medicalContext?: string,
-): Promise<GeminiMedicalPrompt> {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) {
-    throw new Error('ANTHROPIC_API_KEY not set — required for Claude prompt enhancement');
+function assessComplexity(prompt: string): { complexity: 'standard' | 'complex'; reason: string } {
+  const lower = prompt.toLowerCase();
+  const matched = COMPLEX_KEYWORDS.filter((kw) => lower.includes(kw));
+  if (matched.length >= 2) {
+    return { complexity: 'complex', reason: `Multiple complex elements: ${matched.slice(0, 3).join(', ')}` };
   }
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': anthropicKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
-      system: PROMPT_ENHANCEMENT_SYSTEM,
-      messages: [
-        {
-          role: 'user',
-          content: buildEnhancementUserPrompt(rawPrompt, medicalContext),
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Claude prompt enhancement failed (${response.status}): ${text}`);
+  if (matched.length === 1) {
+    return { complexity: 'complex', reason: `Contains: ${matched[0]}` };
   }
-
-  const data = await response.json();
-  const content = data.content?.[0]?.text;
-  if (!content) {
-    throw new Error('Claude returned empty response for prompt enhancement');
+  // Word count heuristic — long descriptions usually mean complex diagrams
+  if (prompt.split(/\s+/).length > 40) {
+    return { complexity: 'complex', reason: 'Detailed description (40+ words)' };
   }
-
-  // Parse JSON from Claude's response — strip markdown fences, leading/trailing whitespace
-  let jsonStr = content.trim();
-  // Remove ```json ... ``` wrapping (multiline)
-  const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-  if (fenceMatch) {
-    jsonStr = fenceMatch[1].trim();
-  }
-  try {
-    return JSON.parse(jsonStr) as GeminiMedicalPrompt;
-  } catch {
-    throw new Error(`Claude returned invalid JSON: ${content.substring(0, 200)}`);
-  }
+  return { complexity: 'standard', reason: 'Simple illustration' };
 }
 
 /**
- * Select the Gemini model based on Claude's complexity assessment.
+ * Build a structured Gemini prompt deterministically — no LLM API call.
+ *
+ * Takes the raw mediaGenerations description and wraps it in the structured
+ * format that Gemini needs for medically accurate diagrams.
+ */
+function buildStructuredPrompt(
+  rawPrompt: string,
+  medicalContext?: string,
+): GeminiMedicalPrompt {
+  const { complexity, reason } = assessComplexity(rawPrompt);
+
+  const contextLine = medicalContext
+    ? `\n\nMedical context: ${medicalContext}`
+    : '';
+
+  const sceneDescription = [
+    rawPrompt,
+    '',
+    'Style requirements:',
+    '- Clean digital illustration with white background, medical textbook aesthetic',
+    '- Include full anatomical labels directly on the diagram with leader lines/arrows',
+    '- Use education-standard colors: arteries in red, veins in blue, nerves in yellow, lymph in green, bone in off-white',
+    '- Labels should use clean sans-serif font with high contrast',
+    '- The diagram should be self-explanatory — a student should understand it without a separate legend',
+    contextLine,
+  ].join('\n');
+
+  return {
+    gemini_prompt: {
+      meta: {
+        aspect_ratio: '16:9',
+        quality: 'vector_illustration',
+        guidance_scale: 15.0,
+        steps: 50,
+      },
+      scene: {
+        description: sceneDescription,
+      },
+      text: {
+        enabled: true,
+      },
+      labeling: {
+        strategy: 'full_labels',
+        labels: [], // Gemini determines labels from the scene description
+      },
+      style: {
+        medium: 'digital_illustration',
+        aesthetic: 'minimalist',
+      },
+      advanced: {
+        negative_prompt: ['watermark', 'signature', 'blurry', 'photorealistic', 'low quality'],
+        hdr_mode: true,
+      },
+    },
+    alt_text: rawPrompt.substring(0, 120),
+    figure_title: rawPrompt.split(/[.!?]/)[0].substring(0, 80),
+    layout: complexity === 'complex' ? 'Multi-panel or detailed diagram' : 'Single-panel illustration',
+    complexity,
+    complexity_reason: reason,
+    labels: {},
+  };
+}
+
+/**
+ * Select the Gemini model based on complexity assessment.
  * CLI model override (via config.model) takes priority.
  */
 function selectModel(
   configModel: string | undefined,
   enhanced: GeminiMedicalPrompt,
 ): string {
-  // Explicit model override takes priority
   if (configModel && configModel !== GEMINI_FLASH) {
     return configModel;
   }
-  // Complexity-based selection
   return enhanced.complexity === 'complex' ? GEMINI_PRO : GEMINI_FLASH;
 }
 
@@ -166,7 +199,6 @@ async function callGemini(
     throw new Error(`Gemini did not return an image. Response: ${textPart?.text || 'none'}`);
   }
 
-  // Determine dimensions from aspect ratio
   const ratio = enhanced.gemini_prompt.meta.aspect_ratio || '16:9';
   const [w, h] = ratio.split(':').map(Number);
   const width = 1024;
@@ -180,21 +212,11 @@ async function callGemini(
 }
 
 /**
- * Connectivity test — validates both Anthropic and Gemini keys.
+ * Connectivity test — validates Gemini key only (no Anthropic needed).
  */
 export async function testGeminiMedicalConnectivity(
   config: ImageGenerationConfig,
 ): Promise<{ success: boolean; message: string }> {
-  // Check Anthropic key
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) {
-    return {
-      success: false,
-      message: 'ANTHROPIC_API_KEY not set — required for Claude prompt enhancement.',
-    };
-  }
-
-  // Check Gemini key (reuse nano-banana's model list endpoint)
   const baseUrl = config.baseUrl || DEFAULT_BASE_URL;
   try {
     const response = await fetch(`${baseUrl}/v1beta/models?key=${config.apiKey}`, {
@@ -215,29 +237,26 @@ export async function testGeminiMedicalConnectivity(
 
   return {
     success: true,
-    message: `Connected to Gemini Medical (Claude enhancement + Gemini ${GEMINI_FLASH}/${GEMINI_PRO})`,
+    message: `Connected to Gemini Medical (${GEMINI_FLASH}/${GEMINI_PRO})`,
   };
 }
 
 /**
  * Main generation function.
  *
- * Flow: Claude enhancement → model selection → Gemini generation → fallback on failure.
- *
- * The `options.prompt` contains the raw mediaGenerations description.
- * Medical context (competency, topic) can be passed via `options.style` field
- * as a workaround since ImageGenerationOptions doesn't have a context field.
+ * Flow: Build structured prompt → select model → Gemini generation.
+ * No external LLM API calls — prompt is built deterministically.
  */
 export async function generateWithGeminiMedical(
   config: ImageGenerationConfig,
   options: ImageGenerationOptions,
 ): Promise<ImageGenerationResult> {
   const baseUrl = config.baseUrl || DEFAULT_BASE_URL;
-  const medicalContext = options.style; // Overloaded: style field carries medical context for this adapter
+  const medicalContext = options.style;
 
   try {
-    // Step 1: Claude enhances the raw prompt
-    const enhanced = await enhancePromptWithClaude(options.prompt, medicalContext);
+    // Step 1: Build structured prompt (deterministic, no API call)
+    const enhanced = buildStructuredPrompt(options.prompt, medicalContext);
 
     console.log(
       `[gemini-medical] Complexity: ${enhanced.complexity} (${enhanced.complexity_reason}). ` +
@@ -257,12 +276,7 @@ export async function generateWithGeminiMedical(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[gemini-medical] Generation failed: ${message}. Trying fallback...`);
-
-    // Fallback: try pre-existing images from cbme
-    // Note: fallback needs classroomId which we don't have at the adapter level.
-    // The fallback is handled in generate-classroom.ts instead (see Task 6).
-    // Re-throw so the caller can attempt fallback.
+    console.warn(`[gemini-medical] Generation failed: ${message}`);
     throw err;
   }
 }
