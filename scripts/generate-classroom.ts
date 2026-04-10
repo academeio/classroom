@@ -521,6 +521,16 @@ async function main() {
             scene.content.canvas.viewportSize = scene.content.canvas.viewportSize || 1000;
             scene.content.canvas.viewportRatio = scene.content.canvas.viewportRatio || 0.5625;
             scene.content.canvas.theme = scene.content.canvas.theme || defaultTheme;
+            // Fix image aspect ratios: enforce 16:9 ratio (matching generated images)
+            for (const el of scene.content.canvas.elements || []) {
+              if (el.type === 'image' && el.fixedRatio) {
+                // Generated images are 16:9 — ensure height matches width at that ratio
+                const expectedHeight = Math.round(el.width * 9 / 16);
+                if (Math.abs(el.height - expectedHeight) > 20) {
+                  el.height = expectedHeight;
+                }
+              }
+            }
           }
         }
       }
