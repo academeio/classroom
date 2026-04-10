@@ -501,7 +501,30 @@ async function main() {
 
     if (existsSync(scenesPath)) {
       scenes = JSON.parse(readFileSync(scenesPath, 'utf-8'));
-      console.log(`  Loaded ${scenes.length} scenes from ${scenesPath}`);
+      // Normalize pre-generated scenes: add required canvas metadata the renderer expects
+      const defaultTheme = {
+        backgroundColor: '#ffffff',
+        themeColors: ['#5b9bd5', '#ed7d31', '#a5a5a5', '#ffc000', '#4472c4'],
+        fontColor: '#333333',
+        fontName: 'Microsoft YaHei',
+        outline: { color: '#d14424', style: 'solid', width: 2 },
+        shadow: { h: 0, v: 0, blur: 10, color: '#000000' },
+      };
+      for (const scene of scenes) {
+        scene.stageId = scene.stageId || stageId;
+        scene.createdAt = scene.createdAt || Date.now();
+        scene.updatedAt = scene.updatedAt || Date.now();
+        if (scene.content) {
+          scene.content.type = scene.content.type || 'slide';
+          if (scene.content.canvas) {
+            scene.content.canvas.id = scene.content.canvas.id || nanoid(10);
+            scene.content.canvas.viewportSize = scene.content.canvas.viewportSize || 1000;
+            scene.content.canvas.viewportRatio = scene.content.canvas.viewportRatio || 0.5625;
+            scene.content.canvas.theme = scene.content.canvas.theme || defaultTheme;
+          }
+        }
+      }
+      console.log(`  Loaded ${scenes.length} scenes from ${scenesPath} (normalized)`);
     }
 
     console.log('  Steps 1-5 (auth, competencies, outlines, content, actions) SKIPPED — using pre-generated files.');
