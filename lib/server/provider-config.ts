@@ -90,6 +90,7 @@ const IMAGE_ENV_MAP: Record<string, string> = {
   IMAGE_MINIMAX: 'minimax-image',
   IMAGE_GROK: 'grok-image',
   IMAGE_LEMONADE: 'lemonade',
+  IMAGE_GEMINI_MEDICAL: 'gemini-medical',
 };
 
 const VIDEO_ENV_MAP: Record<string, string> = {

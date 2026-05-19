@@ -25,6 +25,7 @@ import {
   generateWithLemonadeImage,
   testLemonadeImageConnectivity,
 } from './adapters/lemonade-image-adapter';
+import { generateWithGeminiMedical, testGeminiMedicalConnectivity } from './adapters/gemini-medical-adapter';
 
 export const IMAGE_PROVIDERS: Record<ImageProviderId, ImageProviderConfig> = {
   seedream: {
@@ -98,27 +99,22 @@ export const IMAGE_PROVIDERS: Record<ImageProviderId, ImageProviderConfig> = {
     ],
     supportedAspectRatios: ['16:9', '4:3', '1:1'],
   },
-  'minimax-image': {
-    id: 'minimax-image',
-    name: 'MiniMax Image',
+  'gemini-medical': {
+    id: 'gemini-medical',
+    name: 'Gemini Medical (Claude-enhanced)',
     requiresApiKey: true,
-    defaultBaseUrl: 'https://api.minimaxi.com',
+    defaultBaseUrl: 'https://generativelanguage.googleapis.com',
     models: [
-      { id: 'image-01', name: 'Image 01' },
-      { id: 'image-01-live', name: 'Image 01 Live' },
+      {
+        id: 'gemini-3.1-flash-image-preview',
+        name: 'Gemini 3.1 Flash (auto-selected for simple)',
+      },
+      {
+        id: 'gemini-3-pro-image-preview',
+        name: 'Gemini 3 Pro (auto-selected for complex)',
+      },
     ],
-    supportedAspectRatios: ['16:9', '4:3', '1:1', '9:16'],
-  },
-  'grok-image': {
-    id: 'grok-image',
-    name: 'Grok Image (xAI)',
-    requiresApiKey: true,
-    defaultBaseUrl: 'https://api.x.ai/v1',
-    models: [
-      { id: 'grok-imagine-image', name: 'Grok Imagine Image' },
-      { id: 'grok-imagine-image-pro', name: 'Grok Imagine Image Pro' },
-    ],
-    supportedAspectRatios: ['16:9', '4:3', '1:1', '9:16'],
+    supportedAspectRatios: ['16:9', '4:3', '1:1'],
   },
   lemonade: {
     id: 'lemonade',
@@ -153,6 +149,8 @@ export async function testImageConnectivity(
       return testGrokImageConnectivity(config);
     case 'lemonade':
       return testLemonadeImageConnectivity(config);
+    case 'gemini-medical':
+      return testGeminiMedicalConnectivity(config);
     default:
       return {
         success: false,
@@ -180,6 +178,8 @@ export async function generateImage(
       return generateWithGrokImage(config, options);
     case 'lemonade':
       return generateWithLemonadeImage(config, options);
+    case 'gemini-medical':
+      return generateWithGeminiMedical(config, options);
     default:
       throw new Error(`Unsupported image provider: ${config.providerId}`);
   }
