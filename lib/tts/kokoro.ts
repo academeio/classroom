@@ -106,32 +106,51 @@ function concatenateWavBuffers(buffers: Buffer[]): Buffer {
   return Buffer.concat([header, pcm]);
 }
 
-export async function synthesize({
-  text,
-  voice,
-  pace = 1.0,
-  lang = 'a',
-}: TTSOptions): Promise<TTSResult> {
+// Output format defaults to MP3 (smaller files, ~3× smaller than WAV).
+// Override per call via `format: 'wav'` in opts, or globally via KOKORO_FORMAT.
+type KokoroFormat = 'mp3' | 'wav';
+
+function resolveFormat(opt?: KokoroFormat): KokoroFormat {
+  if (opt === 'mp3' || opt === 'wav') return opt;
+  const env = (process.env.KOKORO_FORMAT || '').toLowerCase();
+  if (env === 'wav') return 'wav';
+  return 'mp3';
+}
+
+export async function synthesize(
+  opts: TTSOptions & { format?: KokoroFormat },
+): Promise<TTSResult> {
+  const { text, voice, pace = 1.0, lang = 'a' } = opts;
   if (!text || typeof text !== 'string') throw new Error('kokoro: text is required');
+
+  const format = resolveFormat(opts.format);
 
   const chunks = splitIntoChunks(text);
   if (chunks.length > 1) {
     const parts: Buffer[] = [];
     for (const chunk of chunks) {
       // eslint-disable-next-line no-await-in-loop
-      const r = await synthesize({ text: chunk, voice, pace, lang });
+      const r = await synthesize({ text: chunk, voice, pace, lang, format });
       parts.push(r.buffer);
     }
-    return { buffer: concatenateWavBuffers(parts), format: 'wav' };
+    // WAV needs proper header recomputation; MP3 streams concatenate by
+    // simple byte append (browsers tolerate sequential frames without
+    // a fresh ID3 header).
+    const merged =
+      format === 'wav' ? concatenateWavBuffers(parts) : Buffer.concat(parts);
+    return { buffer: merged, format };
   }
 
+  // Default to our self-contained script; fall back to academe-video-gen for
+  // backwards compatibility, then env override.
+  const here = new URL('.', import.meta.url).pathname;
+  const localScript = join(here, '..', '..', 'scripts', 'kokoro_tts.py');
   const python =
     process.env.KOKORO_PYTHON || '/Users/jagan/Developer/academe-video-gen/.venv/bin/python';
-  const script =
-    process.env.KOKORO_SCRIPT || '/Users/jagan/Developer/academe-video-gen/scripts/kokoro_tts.py';
+  const script = process.env.KOKORO_SCRIPT || localScript;
 
   const dir = await mkdtemp(join(tmpdir(), 'kokoro-'));
-  const outPath = join(dir, 'out.wav');
+  const outPath = join(dir, `out.${format}`);
 
   const args = [
     script,
@@ -141,6 +160,7 @@ export async function synthesize({
     '--speed', String(pace),
     '--output', outPath,
     '--sample-rate', String(SAMPLE_RATE),
+    '--format', format,
   ];
 
   // TS doesn't narrow closure-modified vars, so collect the result into a
@@ -174,19 +194,21 @@ export async function synthesize({
       const tail = execStderr.slice(-2000);
       throw new Error(`kokoro: python exited with error: ${execErr.message}\nstderr: ${tail}`);
     }
-    throw new Error('kokoro: output WAV file not found after synthesis');
+    throw new Error(`kokoro: output ${format.toUpperCase()} file not found after synthesis`);
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 
   if (execErr && execErr.killed) {
     const tail = execStderr.slice(-2000);
-    throw new Error(`kokoro: process killed (timeout?) — discarding partial WAV\nstderr: ${tail}`);
+    throw new Error(
+      `kokoro: process killed (timeout?) — discarding partial ${format.toUpperCase()}\nstderr: ${tail}`,
+    );
   }
-  // Kokoro sometimes exits non-zero even when it wrote a usable WAV
-  // (e.g. on phonetic-notation edge cases). Trust the WAV.
+  // Kokoro sometimes exits non-zero even when it wrote a usable file
+  // (e.g. on phonetic-notation edge cases). Trust the audio.
 
-  return { buffer, format: 'wav' };
+  return { buffer, format };
 }
 
 // ── Kokoro voice pairs — male+female dual-narrator combinations ──
