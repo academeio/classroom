@@ -374,12 +374,13 @@ function resolveLLMSelection(
 }
 
 // Initialize default audio config
+// SBV/Academe: Azure TTS with Indian English voice (Neerja) by default
 const getDefaultAudioConfig = () => ({
-  ttsProviderId: 'browser-native-tts' as TTSProviderId,
-  ttsVoice: 'default',
+  ttsProviderId: 'azure-tts' as TTSProviderId,
+  ttsVoice: 'en-IN-NeerjaNeural',
   ttsSpeed: 1.0,
   asrProviderId: 'browser-native' as ASRProviderId,
-  asrLanguage: 'zh',
+  asrLanguage: 'en',
   ttsProvidersConfig: {
     'openai-tts': { apiKey: '', baseUrl: '', enabled: true },
     'azure-tts': { apiKey: '', baseUrl: '', enabled: false },
@@ -781,7 +782,8 @@ export const useSettingsStore = create<SettingsState>()(
         // Playback controls
         ttsMuted: false,
         ttsVolume: 1,
-        autoPlayLecture: false,
+        // SBV/Academe: auto-play classroom lectures by default
+        autoPlayLecture: true,
         playbackSpeed: 1,
 
         // Layout preferences
