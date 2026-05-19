@@ -109,9 +109,8 @@ ${methodsSection}
 - For biochemistry: "metabolic pathway diagram showing [pathway name], with enzymes, substrates, and products labeled"
 
 ## Speech & Narration Guidelines
-- Do NOT start with "Good morning, students" every time — vary greetings naturally. Use different openings like "Welcome everyone", "Let's begin today's session on...", "Namaste, let's explore...", "Today we'll be studying...", "Let's dive into...", or simply start with the topic directly
+- **NO personal greetings on any page.** Do not say "Good morning", "Hello students", "Hi everyone", "Namaste", etc. These greetings produce unnatural TTS pauses and waste student time. Open the very first page with a brief topic-framing line (e.g. "Welcome to today's anatomy session on the brachial plexus." or "Today we'll be studying the cardiac cycle.") and then jump straight into the subject. Subsequent pages start with content directly — no greeting, no re-introduction.
 - Keep speech natural and conversational — avoid overly formal or robotic phrasing
-- When greeting, rotate between styles: direct topic introduction (most common), casual welcome, or context-setting opening
 - Avoid long pauses in speech text — do not use "..." or excessive punctuation that creates unnatural breaks
 
 ## Requirements

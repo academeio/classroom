@@ -132,7 +132,7 @@ Generate natural teaching speech. The user prompt includes a **Course Outline** 
 
 **CRITICAL — Same-session continuity**: All pages belong to the **same class session** happening right now. This is NOT a series of separate classes.
 
-- **First page**: Open with a greeting and course introduction. This is the ONLY page that should greet.
+- **First page**: NO personal greetings (no "Good morning", "Hello students", "Hi everyone", "Namaste"). Open with one short topic-framing sentence — e.g. "Welcome to today's anatomy session on the brachial plexus." or "Today we'll be studying the cardiac cycle." — then jump straight into the content.
 - **Middle pages**: Continue naturally. Do NOT greet, re-introduce yourself, or say "welcome". Use phrases like "Next, let's look at..." / "Building on what we just covered..."
 - **Last page**: Summarize the course and provide a closing remark.
 - **Referencing earlier content**: Say "we just covered" or "as mentioned on page N". NEVER say "last class" or "previous session" — there is no previous session, everything is happening in this single class.

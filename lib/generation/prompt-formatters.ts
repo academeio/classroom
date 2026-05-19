@@ -21,11 +21,13 @@ export function buildCourseContext(ctx?: SceneGenerationContext): string {
   // Position information
   lines.push('');
   lines.push(
-    'IMPORTANT: All pages belong to the SAME class session. Do NOT greet again after the first page. When referencing content from earlier pages, say "we just covered" or "as mentioned on page N" — NEVER say "last class" or "previous session" because there is no previous session.',
+    'IMPORTANT: All pages belong to the SAME class session. Do NOT use personal greetings on any page (no "Good morning students", "Hello everyone", "Namaste", etc. — these create unnatural TTS pauses). When referencing content from earlier pages, say "we just covered" or "as mentioned on page N" — NEVER say "last class" or "previous session" because there is no previous session.',
   );
   lines.push('');
   if (ctx.pageIndex === 1) {
-    lines.push('Position: This is the FIRST page. Open with a greeting and course introduction.');
+    lines.push(
+      'Position: This is the FIRST page. Open with a single short topic-framing sentence (e.g. "Welcome to today\'s anatomy session on X." or "Today we\'ll be studying Y.") and then immediately jump into the content. NO personal greetings.',
+    );
   } else if (ctx.pageIndex === ctx.totalPages) {
     lines.push('Position: This is the LAST page. Conclude the course with a summary and closing.');
     lines.push(
