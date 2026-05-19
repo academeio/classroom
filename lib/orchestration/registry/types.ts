@@ -3,8 +3,6 @@
  * Defines the structure for configurable AI agents in the multi-agent system
  */
 
-import type { TTSProviderId } from '@/lib/audio/types';
-
 export interface AgentConfig {
   id: string; // Unique agent ID
   name: string; // Display name (Chinese)
@@ -14,7 +12,6 @@ export interface AgentConfig {
   color: string; // UI theme color (hex)
   allowedActions: string[]; // Action types this agent can use
   priority: number; // Priority for director selection (1-10)
-  voiceConfig?: { providerId: TTSProviderId; modelId?: string; voiceId: string }; // Per-agent TTS voice selection
 
   // Metadata
   createdAt: Date;
@@ -35,7 +32,6 @@ export interface AgentTemplate {
   color: string;
   allowedActions: string[];
   priority: number;
-  voiceConfig?: { providerId: TTSProviderId; modelId?: string; voiceId: string }; // Per-agent TTS voice selection
 
   // LLM-generated agent fields
   isGenerated?: boolean; // true for LLM-generated agents
