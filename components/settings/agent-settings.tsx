@@ -159,9 +159,10 @@ export function AgentSettings({
                 <span className="flex items-center gap-1.5">
                   <Users className="h-4 w-4" />
                   <strong>{t('settings.multiAgentMode')}</strong> -{' '}
-                  {t('settings.agentsCollaboratingCount', {
-                    count: selectedAgentIds.length,
-                  })}
+                  {t('settings.agentsCollaboratingCount').replace(
+                    '{count}',
+                    String(selectedAgentIds.length),
+                  )}
                 </span>
               )}
             </div>

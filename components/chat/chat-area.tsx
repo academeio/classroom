@@ -26,16 +26,7 @@ interface ChatAreaProps {
   onSpeechProgress?: (ratio: number | null) => void;
   onThinking?: (state: { stage: string; agentId?: string } | null) => void;
   onCueUser?: (fromAgentId?: string, prompt?: string) => void;
-  onLiveSessionError?: () => void;
   onStopSession?: () => void;
-  onSegmentSealed?: (
-    messageId: string,
-    partId: string,
-    fullText: string,
-    agentId: string | null,
-  ) => void;
-  /** When provided and returns true, StreamBuffer holds on the current text item after reveal. */
-  shouldHoldAfterReveal?: () => { holding: boolean; segmentDone: number } | boolean;
   currentSceneId?: string | null;
 }
 
@@ -54,8 +45,6 @@ export interface ChatAreaRef {
   getLectureMessageId: (sessionId: string) => string | null;
   pauseBuffer: (sessionId: string) => void;
   resumeBuffer: (sessionId: string) => void;
-  pauseActiveLiveBuffer: () => boolean;
-  resumeActiveLiveBuffer: () => void;
   switchToTab: (tab: 'lecture' | 'chat') => void;
 }
 
@@ -77,10 +66,7 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
       onSpeechProgress,
       onThinking,
       onCueUser,
-      onLiveSessionError,
       onStopSession,
-      onSegmentSealed,
-      shouldHoldAfterReveal,
       currentSceneId,
     },
     ref,
@@ -105,18 +91,13 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
       getLectureMessageId,
       pauseBuffer,
       resumeBuffer,
-      pauseActiveLiveBuffer,
-      resumeActiveLiveBuffer,
     } = useChatSessions({
       onLiveSpeech,
       onSpeechProgress,
       onThinking,
       onCueUser,
       onActiveBubble,
-      onLiveSessionError,
       onStopSession,
-      onSegmentSealed,
-      shouldHoldAfterReveal,
     });
 
     const [activeTab, setActiveTab] = useState<'lecture' | 'chat'>('lecture');
@@ -199,8 +180,6 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
       getLectureMessageId,
       pauseBuffer,
       resumeBuffer,
-      pauseActiveLiveBuffer,
-      resumeActiveLiveBuffer,
       switchToTab,
     }));
 

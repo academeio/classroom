@@ -14,9 +14,6 @@ interface ProactiveCardProps {
   anchorRef: React.RefObject<HTMLElement | null>;
   /** Where the card prefers to align relative to the anchor */
   align?: 'left' | 'right';
-  /** Portal target — defaults to document.body. Pass the fullscreen container
-   *  when in presentation mode so the card stays visible inside the top-layer. */
-  portalContainer?: HTMLElement | null;
   agentName?: string;
   agentAvatar?: string;
   agentColor?: string;
@@ -39,7 +36,6 @@ export const ProactiveCard = ({
   mode,
   anchorRef,
   align = 'right',
-  portalContainer,
   agentName,
   agentAvatar,
   agentColor,
@@ -244,5 +240,5 @@ export const ProactiveCard = ({
     </motion.div>
   );
 
-  return createPortal(card, portalContainer || document.body);
+  return createPortal(card, document.body);
 };

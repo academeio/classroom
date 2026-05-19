@@ -13,8 +13,6 @@ import {
   Volume2,
   VolumeX,
   Repeat,
-  Maximize2,
-  Minimize2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStageStore } from '@/lib/store';
@@ -37,8 +35,6 @@ export interface CanvasToolbarProps {
   readonly onWhiteboardClose: () => void;
   readonly showStopDiscussion?: boolean;
   readonly onStopDiscussion?: () => void;
-  readonly isPresenting?: boolean;
-  readonly onTogglePresentation?: () => void;
   readonly className?: string;
   // Audio/playback controls
   readonly ttsEnabled?: boolean;
@@ -96,8 +92,6 @@ export function CanvasToolbar({
   onWhiteboardClose,
   showStopDiscussion,
   onStopDiscussion,
-  isPresenting,
-  onTogglePresentation,
   className,
   ttsEnabled,
   ttsMuted,
@@ -137,10 +131,9 @@ export function CanvasToolbar({
 
   // Effective volume for display
   const effectiveVolume = ttsMuted ? 0 : ttsVolume;
-  const presentationLabel = isPresenting ? t('stage.exitFullscreen') : t('stage.fullscreen');
 
   return (
-    <div className={cn('flex items-center gap-2', className)}>
+    <div className={cn('flex items-center', className)}>
       {/* ── Left: sidebar toggle + page indicator ── */}
       <div className="flex items-center gap-1 shrink-0 pl-1">
         {onToggleSidebar && (
@@ -165,18 +158,9 @@ export function CanvasToolbar({
         </span>
       </div>
 
-      <CtrlDivider />
-
       {/* ── Center: unified playback controls ── */}
       <div className="flex-1 flex items-center justify-center min-w-0">
-        <div
-          className={cn(
-            'inline-flex items-center gap-0.5 px-1 h-7',
-            isPresenting
-              ? '' /* Single visual layer in fullscreen — buttons sit inside outer pill directly */
-              : 'bg-gray-100/60 dark:bg-gray-800/60 rounded-lg',
-          )}
-        >
+        <div className="inline-flex items-center gap-0.5 bg-gray-100/60 dark:bg-gray-800/60 rounded-lg px-1 h-7">
           {/* Volume with vertical popover slider */}
           {onToggleMute && (
             <div
@@ -396,29 +380,8 @@ export function CanvasToolbar({
         </div>
       </div>
 
-      {/* ── Right: fullscreen + chat toggle ── */}
+      {/* ── Right: chat toggle ── */}
       <div className="flex items-center justify-end gap-px shrink-0 pr-1">
-        <CtrlDivider />
-        {onTogglePresentation && (
-          <button
-            onClick={onTogglePresentation}
-            className={cn(
-              ctrlBtn,
-              'w-6 h-6',
-              isPresenting
-                ? 'text-violet-600 dark:text-violet-400'
-                : 'text-gray-500 dark:text-gray-400',
-            )}
-            aria-label={presentationLabel}
-            title={presentationLabel}
-          >
-            {isPresenting ? (
-              <Minimize2 className="w-3.5 h-3.5" />
-            ) : (
-              <Maximize2 className="w-3.5 h-3.5" />
-            )}
-          </button>
-        )}
         {onToggleChat && (
           <button
             onClick={onToggleChat}

@@ -21,9 +21,8 @@ const log = createLogger('ProxyMedia');
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
-  let url: string | undefined;
   try {
-    ({ url } = await request.json());
+    const { url } = await request.json();
 
     if (!url || typeof url !== 'string') {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Missing or invalid url');
@@ -55,7 +54,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    log.error(`Proxy media failed [url="${url?.substring(0, 100) ?? 'unknown'}"]:`, error);
+    log.error('Proxy media error:', error);
     return apiError('INTERNAL_ERROR', 500, error instanceof Error ? error.message : String(error));
   }
 }
