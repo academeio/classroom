@@ -1,77 +1,73 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-/** Convert string to Uint8Array */
-function encode(str: string): Uint8Array {
-  return new TextEncoder().encode(str);
-}
+const PROTECTED_ROUTES = ['/', '/generation-preview'];
+const PROTECTED_API_PREFIXES = ['/api/generate', '/api/competencies/enrich'];
+const PUBLIC_ROUTES = ['/login', '/guide', '/classroom'];
+const PUBLIC_API_PREFIXES = ['/api/auth', '/api/classroom', '/api/classroom-audio', '/api/health', '/api/generate/tts'];
+const PUBLIC_API_EXACT = ['/api/competencies', '/api/competencies/search', '/api/chat', '/api/quiz-grade'];
 
-/** Convert ArrayBuffer to hex string */
-function bufToHex(buf: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
+// Edge-compatible HMAC verification using Web Crypto API
+async function verifyToken(token: string): Promise<boolean> {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret || !token) return false;
+  const parts = token.split(':');
+  if (parts.length !== 3) return false;
+  const [prefix, expiryStr, sig] = parts;
 
-/** Verify an HMAC-signed token using Web Crypto API (Edge-compatible) */
-async function verifyToken(token: string, accessCode: string): Promise<boolean> {
-  const dotIndex = token.indexOf('.');
-  if (dotIndex === -1) return false;
+  // Check expiry first (cheap)
+  if (Date.now() > parseInt(expiryStr, 10)) return false;
 
-  const timestamp = token.substring(0, dotIndex);
-  const signature = token.substring(dotIndex + 1);
-
-  const keyData = encode(accessCode);
+  // HMAC-SHA256 via Web Crypto API (Edge-compatible)
+  const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw',
-    keyData.buffer as ArrayBuffer,
+    encoder.encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
   );
+  const payload = `${prefix}:${expiryStr}`;
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
+  const expected = Array.from(new Uint8Array(signature))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
 
-  const data = encode(timestamp);
-  const expected = bufToHex(await crypto.subtle.sign('HMAC', key, data.buffer as ArrayBuffer));
-
-  // Constant-length comparison (not truly constant-time in JS, but sufficient here)
-  if (signature.length !== expected.length) return false;
-  let mismatch = 0;
-  for (let i = 0; i < signature.length; i++) {
-    mismatch |= signature.charCodeAt(i) ^ expected.charCodeAt(i);
-  }
-  return mismatch === 0;
+  return sig === expected;
 }
 
 export async function middleware(request: NextRequest) {
-  const accessCode = process.env.ACCESS_CODE;
-  if (!accessCode) {
-    return NextResponse.next();
-  }
-
   const { pathname } = request.nextUrl;
 
-  // Whitelist: access-code endpoints, health check
-  if (pathname.startsWith('/api/access-code/') || pathname === '/api/health') {
+  if (PUBLIC_ROUTES.some(r => pathname.startsWith(r))) {
+    return NextResponse.next();
+  }
+  if (PUBLIC_API_PREFIXES.some(p => pathname.startsWith(p))) {
+    return NextResponse.next();
+  }
+  if (PUBLIC_API_EXACT.some(p => pathname === p)) {
     return NextResponse.next();
   }
 
-  // Check cookie — validate HMAC signature, not just existence
-  const cookie = request.cookies.get('openmaic_access');
-  if (cookie?.value && (await verifyToken(cookie.value, accessCode))) {
+  const needsAuth =
+    PROTECTED_ROUTES.includes(pathname) ||
+    PROTECTED_API_PREFIXES.some(p => pathname.startsWith(p));
+
+  if (!needsAuth) {
     return NextResponse.next();
   }
 
-  // API requests without valid cookie → 401
+  const session = request.cookies.get('academe-session');
+  if (session?.value && (await verifyToken(session.value))) {
+    return NextResponse.next();
+  }
+
   if (pathname.startsWith('/api/')) {
-    return NextResponse.json(
-      { success: false, errorCode: 'INVALID_REQUEST', error: 'Access code required' },
-      { status: 401 },
-    );
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Page requests → let through, frontend shows modal
-  return NextResponse.next();
+  return NextResponse.redirect(new URL('/login', request.url));
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|logos/).*)'],
+  matcher: ['/', '/generation-preview', '/api/generate/:path*', '/api/competencies/enrich'],
 };
