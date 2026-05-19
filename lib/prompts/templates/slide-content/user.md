@@ -1,5 +1,7 @@
 # Generation Requirements
 
+{{medicalContext}}
+
 ## Scene Information
 
 - **Title**: {{title}}

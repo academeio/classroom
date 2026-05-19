@@ -1,3 +1,5 @@
+{{medicalContext}}
+
 Elements: {{elements}}
 Title: {{title}}
 Key Points: {{keyPoints}}

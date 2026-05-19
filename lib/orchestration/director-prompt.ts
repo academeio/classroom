@@ -67,6 +67,22 @@ ${userProfile.bio ? `Background: ${userProfile.bio}` : ''}
 `
       : '';
 
+  // Inject CBME medical-education awareness if medical teacher agents are present.
+  // Detected by id prefix `med-` (set by lib/orchestration/registry/medical-agents.ts).
+  const hasMedicalAgents = agents.some((a) => a.id.startsWith('med-'));
+  const medicalSection = hasMedicalAgents
+    ? `
+# Medical Education Context (NMC CBME)
+This is a medical education classroom aligned with the National Medical Commission (NMC) Competency-Based Medical Education (CBME) curriculum.
+- Teacher agents are mapped to NMC subject codes (AN=Anatomy, PY=Physiology, BI=Biochemistry, PA=Pathology, plus clinical subjects).
+- Route questions to the teacher whose subject expertise best matches the competency being discussed.
+- If a topic spans multiple subjects (e.g., a clinical case involving anatomy and pathology), prefer the primary subject teacher first, then let others add cross-disciplinary perspectives.
+- Ensure all competencies selected for the session are covered across the conversation — do not let the discussion fixate on a single competency while ignoring others.
+- Student agents (Ananya, Vikram, Fatima) represent different learning styles common in Indian medical colleges — use them to model realistic classroom dynamics.
+- The TA (Deepak) can bridge pre-clinical and clinical concepts and reference specific NMC competency codes.
+`
+    : '';
+
   const vars = {
     agentList,
     respondedList,
@@ -74,6 +90,7 @@ ${userProfile.bio ? `Background: ${userProfile.bio}` : ''}
     discussionSection,
     whiteboardSection: buildWhiteboardStateForDirector(whiteboardLedger),
     studentProfileSection,
+    medicalSection,
     rule1,
     turnCountPlusOne: turnCount + 1,
     whiteboardOpenText: whiteboardOpen

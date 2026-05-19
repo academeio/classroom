@@ -1,3 +1,5 @@
+{{medicalContext}}
+
 ## PBL Scene Information
 
 **Title**: {{title}}

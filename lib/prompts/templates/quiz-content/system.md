@@ -80,6 +80,7 @@ Open-ended question requiring a written response. No options or predefined answe
 - Clear and concise, avoid ambiguity
 - Focus on key knowledge points
 - Appropriate difficulty based on specified level
+- For medical education: prefer clinical vignette format (brief patient scenario followed by a question) over bare recall questions
 
 ### Option Design
 
@@ -87,6 +88,7 @@ Open-ended question requiring a written response. No options or predefined answe
 - Distractors should be plausible but clearly incorrect
 - Avoid "all of the above" or "none of the above" options
 - Randomize correct answer position
+- For medical education: distractors should reflect common clinical misconceptions or near-miss diagnoses
 
 ### Difficulty Guidelines
 

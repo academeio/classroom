@@ -1,5 +1,7 @@
 Please generate scene outlines based on the following course requirements.
 
+{{medicalContext}}
+
 ---
 
 ## User Requirements
