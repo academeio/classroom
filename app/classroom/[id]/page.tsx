@@ -12,6 +12,7 @@ import { useWhiteboardHistoryStore } from '@/lib/store/whiteboard-history';
 import { createLogger } from '@/lib/logger';
 import { MediaStageProvider } from '@/lib/contexts/media-stage-context';
 import { generateMediaForOutlines } from '@/lib/media/media-orchestrator';
+import { preloadFromManifest } from '@/lib/utils/audio-preloader';
 
 const log = createLogger('Classroom');
 
@@ -44,13 +45,23 @@ export default function ClassroomDetailPage() {
           if (res.ok) {
             const json = await res.json();
             if (json.success && json.classroom) {
-              const { stage, scenes } = json.classroom;
+              const { stage, scenes, manifestUrl } = json.classroom;
               useStageStore.getState().setStage(stage);
               useStageStore.setState({
                 scenes,
                 currentSceneId: scenes[0]?.id ?? null,
               });
               log.info('Loaded from server-side storage:', classroomId);
+
+              // SBV/Academe: pre-fetch all R2-stored TTS audio into IndexedDB so
+              // playback (AudioPlayer) finds them instantly via audioId lookup
+              // and doesn't re-hit Sarvam on every play. Non-blocking — playback
+              // can start while preload is still in progress.
+              if (manifestUrl) {
+                preloadFromManifest(manifestUrl).catch((err) => {
+                  log.warn('Audio preload from R2 manifest failed:', err);
+                });
+              }
 
               // Hydrate server-generated agents into IndexedDB + registry.
               // Don't set selectedAgentIds here — the general agent
