@@ -25,6 +25,7 @@ interface ModelEditDialogProps {
   baseUrl?: string;
   providerType?: string;
   requiresApiKey?: boolean;
+  isServerConfigured?: boolean;
 }
 
 export function ModelEditDialog({
@@ -39,6 +40,7 @@ export function ModelEditDialog({
   baseUrl,
   providerType,
   requiresApiKey,
+  isServerConfigured,
 }: ModelEditDialogProps) {
   const { t } = useI18n();
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
@@ -60,9 +62,7 @@ export function ModelEditDialog({
   };
 
   const handleTestModel = useCallback(async () => {
-    if (!editingModel || !apiKey) {
-      setTestStatus('error');
-      setTestMessage(t('settings.apiKeyRequired') || 'API Key is required');
+    if (!editingModel) {
       return;
     }
 
@@ -309,7 +309,11 @@ export function ModelEditDialog({
                 variant="outline"
                 size="sm"
                 onClick={handleTestModel}
-                disabled={!editingModel.model.id || testStatus === 'testing'}
+                disabled={
+                  !editingModel.model.id ||
+                  testStatus === 'testing' ||
+                  (requiresApiKey && !apiKey && !isServerConfigured)
+                }
                 className={cn(
                   testStatus === 'success' && 'border-green-600 text-green-600 hover:bg-green-50',
                   testStatus === 'error' && 'border-red-600 text-red-600 hover:bg-red-50',

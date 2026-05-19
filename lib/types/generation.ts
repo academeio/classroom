@@ -52,6 +52,7 @@ export interface UserRequirements {
   userBio?: string; // Student background for personalization
   webSearch?: boolean; // Enable web search for richer context
   interactiveMode?: boolean; // Enable Interactive Mode for interactive-first generation
+  competencyCodes?: string[]; // SBV/CBME: NMC competency codes selected for this classroom
 }
 
 // ==================== Stage 1 Output: Scene Outlines (Simplified) ====================

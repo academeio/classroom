@@ -44,6 +44,7 @@ import {
   StageListItem,
   listStages,
   deleteStageData,
+  renameStage,
   getFirstSlideByStages,
   revokeThumbnailSlideMediaUrls,
 } from '@/lib/utils/stage-storage';
@@ -852,7 +853,6 @@ function HomePage() {
                           slide={thumbnails[classroom.id]}
                           formatDate={formatDate}
                           onDelete={handleDelete}
-                          onRename={handleRename}
                           confirmingDelete={pendingDeleteId === classroom.id}
                           onConfirmDelete={() => confirmDelete(classroom.id)}
                           onCancelDelete={() => setPendingDeleteId(null)}

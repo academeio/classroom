@@ -99,6 +99,28 @@ export const IMAGE_PROVIDERS: Record<ImageProviderId, ImageProviderConfig> = {
     ],
     supportedAspectRatios: ['16:9', '4:3', '1:1'],
   },
+  'minimax-image': {
+    id: 'minimax-image',
+    name: 'MiniMax Image',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.minimaxi.com',
+    models: [
+      { id: 'image-01', name: 'Image 01' },
+      { id: 'image-01-live', name: 'Image 01 Live' },
+    ],
+    supportedAspectRatios: ['16:9', '4:3', '1:1', '9:16'],
+  },
+  'grok-image': {
+    id: 'grok-image',
+    name: 'Grok Image (xAI)',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.x.ai/v1',
+    models: [
+      { id: 'grok-imagine-image', name: 'Grok Imagine Image' },
+      { id: 'grok-imagine-image-pro', name: 'Grok Imagine Image Pro' },
+    ],
+    supportedAspectRatios: ['16:9', '4:3', '1:1', '9:16'],
+  },
   'gemini-medical': {
     id: 'gemini-medical',
     name: 'Gemini Medical (Claude-enhanced)',
