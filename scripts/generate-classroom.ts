@@ -31,99 +31,41 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import type { GeminiMedicalPrompt } from '../lib/media/adapters/gemini-medical-prompts';
 import { fallbackToExistingImage } from '../lib/media/adapters/gemini-medical-fallback';
 import { SARVAM_VOICE_MAP } from '../lib/orchestration/registry/medical-agents';
+import { getSynthesizer, pickVoicePair, isValidProvider, type TTSProviderId } from '../lib/tts';
 
-// ── Sarvam TTS with 2-voice alternating ──
-
-const MALE_VOICES = ['rahul', 'amit', 'dev', 'varun'];
-const FEMALE_VOICES = ['kavitha', 'priya', 'kavya', 'shreya', 'simran'];
+// ── TTS with 2-voice alternating (provider-agnostic) ──
 
 let classroomVoicePair: [string, string] = ['kavitha', 'rahul'];
 let voiceAlternateIndex = 0;
-
-function pickVoicePair(): [string, string] {
-  const male = MALE_VOICES[Math.floor(Math.random() * MALE_VOICES.length)];
-  const female = FEMALE_VOICES[Math.floor(Math.random() * FEMALE_VOICES.length)];
-  return [female, male];
-}
+let activeProvider: TTSProviderId = 'sarvam';
 
 function getVoiceForAction(action: Record<string, unknown>): string {
-  const agentId = (action.agentId || action.speakerId || '') as string;
-  if (agentId && SARVAM_VOICE_MAP[agentId]) return SARVAM_VOICE_MAP[agentId];
+  // Agent-mapped voices only apply to Sarvam (the mapping is Sarvam-specific
+  // by design — Kokoro doesn't have NMC agent personas). For Kokoro, every
+  // speech action alternates between the chosen pair.
+  if (activeProvider === 'sarvam') {
+    const agentId = (action.agentId || action.speakerId || '') as string;
+    if (agentId && SARVAM_VOICE_MAP[agentId]) return SARVAM_VOICE_MAP[agentId];
 
-  const agentName = (action.agentName || action.speaker || '') as string;
-  const nameMap: Record<string, string> = {
-    'Kavitha': 'kavitha', 'Dr. Kavitha': 'kavitha',
-    'Rajesh': 'rahul', 'Dr. Rajesh': 'rahul',
-    'Priya': 'priya', 'Dr. Priya': 'priya',
-    'Arun': 'amit', 'Dr. Arun': 'amit',
-    'Meera': 'shreya', 'Dr. Meera': 'shreya',
-    'Ananya': 'kavya', 'Vikram': 'varun',
-    'Fatima': 'simran', 'Deepak': 'dev',
-  };
-  for (const [name, voice] of Object.entries(nameMap)) {
-    if (agentName.includes(name)) return voice;
+    const agentName = (action.agentName || action.speaker || '') as string;
+    const nameMap: Record<string, string> = {
+      'Kavitha': 'kavitha', 'Dr. Kavitha': 'kavitha',
+      'Rajesh': 'rahul', 'Dr. Rajesh': 'rahul',
+      'Priya': 'priya', 'Dr. Priya': 'priya',
+      'Arun': 'amit', 'Dr. Arun': 'amit',
+      'Meera': 'shreya', 'Dr. Meera': 'shreya',
+      'Ananya': 'kavya', 'Vikram': 'varun',
+      'Fatima': 'simran', 'Deepak': 'dev',
+    };
+    for (const [name, voice] of Object.entries(nameMap)) {
+      if (agentName.includes(name)) return voice;
+    }
   }
+
   // No agent match — alternate between the 2 selected voices
   const voice = classroomVoicePair[voiceAlternateIndex % 2];
   voiceAlternateIndex++;
   return voice;
-}
-
-/**
- * Preprocess speech text for TTS. Sarvam reads raw digits poorly
- * (e.g., "10-12 cm" becomes "one-zero to one-two cm").
- * Expand number ranges and clean up for natural speech.
- */
-function preprocessForTTS(text: string): string {
-  return text
-    // "10-12 cm" → "10 to 12 cm" (number ranges with hyphen)
-    .replace(/(\d+)\s*[-–—]\s*(\d+)/g, '$1 to $2')
-    // "3-4x" → "3 to 4x"
-    .replace(/(\d+)\s*[-–—]\s*(\d+)([a-zA-Z])/g, '$1 to $2$3')
-    // Ensure space around units: "10cm" → "10 cm"
-    .replace(/(\d)(cm|mm|kg|mg|ml|mmHg|mL|dL|µm|nm)\b/gi, '$1 $2')
-    // "%" spoken as "percent"
-    .replace(/(\d)\s*%/g, '$1 percent');
-}
-
-async function generateTTSViaSarvam(
-  text: string,
-  voice: string,
-  pace: number = 1.0,
-): Promise<{ base64: string; format: string }> {
-  const apiKey = process.env.SARVAM_API_KEY;
-  if (!apiKey) throw new Error('SARVAM_API_KEY not set in .env.local');
-
-  const processed = preprocessForTTS(text);
-  const truncatedText = processed.length > 2400 ? processed.substring(0, 2400) + '.' : processed;
-
-  const resp = await fetch('https://api.sarvam.ai/text-to-speech', {
-    method: 'POST',
-    headers: {
-      'api-subscription-key': apiKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      text: truncatedText,
-      target_language_code: 'en-IN',
-      model: 'bulbul:v3',
-      speaker: voice,
-      pace,
-      output_audio_codec: 'mp3',
-    }),
-  });
-
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new Error(`Sarvam API ${resp.status}: ${body}`);
-  }
-
-  const data = await resp.json();
-  if (!data.audios || !data.audios[0]) {
-    throw new Error('Sarvam API returned no audio');
-  }
-
-  return { base64: data.audios[0], format: 'mp3' };
 }
 
 // ── Types ──
@@ -148,6 +90,7 @@ interface CliArgs {
   model?: string;
   enhancedPrompts?: string; // Path to pre-generated enhanced image prompts JSON
   preGenerated?: string; // Path to directory with pre-generated outlines.json + scenes.json
+  tts: TTSProviderId; // TTS provider — sarvam (default) or kokoro (local, no network)
 }
 
 // ── Argument parsing ──
@@ -174,11 +117,18 @@ Usage:
     --competencies "AN10.3,AN10.5" \\
     --model "anthropic:claude-sonnet-4-latest" \\
     --enhanced-prompts "/tmp/enhanced-prompts.json" \\
-    --pre-generated "/tmp/classroom-spec/"
+    --pre-generated "/tmp/classroom-spec/" \\
+    --tts kokoro
 
 Required: --topic, --password (--requirement optional if --pre-generated)
-Optional: --base-url, --competencies, --model, --enhanced-prompts, --pre-generated
+Optional: --base-url, --competencies, --model, --enhanced-prompts, --pre-generated, --tts (sarvam|kokoro)
 `);
+    process.exit(1);
+  }
+
+  const ttsRaw = (parsed.tts || 'sarvam').toLowerCase();
+  if (!isValidProvider(ttsRaw)) {
+    console.error(`Unknown --tts value "${ttsRaw}". Use "sarvam" or "kokoro".`);
     process.exit(1);
   }
 
@@ -191,6 +141,7 @@ Optional: --base-url, --competencies, --model, --enhanced-prompts, --pre-generat
     model: parsed.model,
     enhancedPrompts: parsed['enhanced-prompts'],
     preGenerated: parsed['pre-generated'],
+    tts: ttsRaw,
   };
 }
 
@@ -776,10 +727,12 @@ async function main() {
     process.exit(1);
   }
 
-  // Step 6: Pre-render TTS audio via Sarvam AI (2 alternating voices per classroom)
-  classroomVoicePair = pickVoicePair();
+  // Step 6: Pre-render TTS audio (2 alternating voices per classroom)
+  activeProvider = args.tts;
+  classroomVoicePair = pickVoicePair(activeProvider);
   voiceAlternateIndex = 0;
-  console.log(`\n[6/7] Pre-rendering TTS audio via Sarvam AI...`);
+  const synthesize = getSynthesizer(activeProvider);
+  console.log(`\n[6/7] Pre-rendering TTS audio via ${activeProvider}...`);
   console.log(`  Voices: ${classroomVoicePair[0]} (F) + ${classroomVoicePair[1]} (M)`);
 
   const audioManifestEntries: Array<{ audioId: string; url: string }> = [];
@@ -801,8 +754,7 @@ async function main() {
       const voice = getVoiceForAction(action);
       process.stdout.write(`  TTS "${audioId}" [${voice}] (${text.length} chars)... `);
       try {
-        const { base64, format } = await generateTTSViaSarvam(text, voice);
-        const audioBuffer = Buffer.from(base64, 'base64');
+        const { buffer: audioBuffer, format } = await synthesize({ text, voice });
         const audioUrl = await uploadClassroomAudio(classroomId, audioId, audioBuffer, format);
         audioManifestEntries.push({ audioId, url: audioUrl });
         ttsCount++;
