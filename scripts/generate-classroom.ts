@@ -346,6 +346,7 @@ async function generateSceneContent(
   stageId: string,
   stageInfo: { name: string; description: string; language: string; style: string },
   model?: string,
+  priorContent?: string,
 ): Promise<{ content: any; effectiveOutline: SceneOutline }> {
   const resp = await apiJson<{
     success: boolean;
@@ -360,6 +361,7 @@ async function generateSceneContent(
       allOutlines,
       stageInfo,
       stageId,
+      priorContent,
     }),
   });
 
@@ -666,9 +668,34 @@ async function main() {
   console.log(`\n[4/7] Generating scene content (${outlines.length} scenes)...`);
   const sceneContents: Array<{ content: any; effectiveOutline: SceneOutline }> = [];
 
+  // Build a plain-text digest of already-generated slide content so quiz
+  // scenes can only test what the slides actually covered.
+  const digestSlide = (
+    title: string,
+    content: { elements?: Array<{ content?: string; text?: string }>; remark?: string } | null,
+  ): string => {
+    if (!content) return `### ${title}\n(content generation failed)`;
+    const bodyBits: string[] = [];
+    if (content.remark) bodyBits.push(`Narration: ${content.remark}`);
+    const elemText = (content.elements || [])
+      .map((el) => (el.content || el.text || '').trim())
+      .filter((t) => t && t.length > 1)
+      .join(' | ');
+    if (elemText) bodyBits.push(`On-slide: ${elemText}`);
+    return `### ${title}\n${bodyBits.join('\n') || '(no text content)'}`;
+  };
+
   for (let i = 0; i < outlines.length; i++) {
     const outline = outlines[i];
     process.stdout.write(`  [${i + 1}/${outlines.length}] "${outline.title}" (${outline.type})... `);
+    // For quiz scenes, assemble a digest of every slide generated so far.
+    const priorContent =
+      outline.type === 'quiz'
+        ? sceneContents
+            .filter((sc) => sc.effectiveOutline.type === 'slide')
+            .map((sc) => digestSlide(sc.effectiveOutline.title, sc.content))
+            .join('\n\n') || undefined
+        : undefined;
     try {
       const result = await generateSceneContent(
         args.baseUrl,
@@ -677,6 +704,7 @@ async function main() {
         stageId,
         stageInfo,
         args.model,
+        priorContent,
       );
       sceneContents.push(result);
       console.log('done');

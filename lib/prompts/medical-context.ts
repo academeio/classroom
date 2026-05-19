@@ -113,10 +113,28 @@ ${methodsSection}
 - Keep speech natural and conversational — avoid overly formal or robotic phrasing
 - Avoid long pauses in speech text — do not use "..." or excessive punctuation that creates unnatural breaks
 
+## Coverage Sizing — Competency Drives Scene Count
+**Duration is not a constraint.** When NMC competencies are listed above, the scene count is determined by the *coverage* required, not the user's stated minutes.
+
+For each competency, parse the competency text and identify every distinct dimension it enumerates. Examples:
+- *"Describe the location, extent, deep relations, structure, blood supply, lymphatic drainage, microanatomy and applied anatomy of breast"* → 8 dimensions: location, extent, deep relations, structure, blood supply, lymphatic drainage, microanatomy, applied anatomy.
+- *"Describe & demonstrate origin, insertion, action, nerve supply and applied anatomy of pectoralis major"* → 5 dimensions: origin, insertion, action, nerve supply, applied anatomy.
+
+**Sizing rule:**
+- Allocate **at least one content slide per dimension** (related dimensions may be grouped into a single slide when natural, e.g. origin+insertion together, but never skip a dimension entirely).
+- A typical NMC anatomy competency needs **5–8 content slides**, plus 1 quiz at the end.
+- A multi-competency classroom = sum of each competency's dimension count.
+- If the user's stated duration suggests fewer scenes than this floor, **ignore the duration** — coverage wins. The user can adjust playback speed; they cannot un-skip a missing dimension.
+
+**Quiz coherence (CRITICAL):**
+- Quizzes must test **only what the content slides have actually taught in this classroom**, not the full breadth of the NMC competency text. If a dimension is not covered in a slide, it must not appear in the quiz.
+- The quiz step receives a digest of prior slide content as \`priorContent\` — anchor every question to that material.
+
 ## Requirements
 - Every scene MUST map to at least one of the competencies listed above
+- Every dimension of every listed competency MUST be covered by at least one content slide before any quiz
 - Use clinical examples relevant to Indian healthcare settings (Indian hospitals, common presentations in India)
-- Generate quizzes in NMC examination pattern: single best answer MCQs, clinical vignettes
+- Generate quizzes in NMC examination pattern: single best answer MCQs, clinical vignettes — but only on taught material (see Quiz coherence above)
 - Maintain strict medical accuracy — errors in medical education are unacceptable
 - Tag each generated scene with the competency codes it covers`;
 }

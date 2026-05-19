@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
       stageId,
       agents,
       languageDirective,
+      priorContent,
     } = body as {
       outline: SceneOutline;
       allOutlines: SceneOutline[];
@@ -50,6 +51,8 @@ export async function POST(req: NextRequest) {
       stageId: string;
       agents?: AgentInfo[];
       languageDirective?: string;
+      /** Digest of slides already generated in this classroom; gates quiz coherence. */
+      priorContent?: string;
     };
 
     // Validate required fields
@@ -155,6 +158,7 @@ export async function POST(req: NextRequest) {
       agents,
       languageDirective,
       thinkingConfig,
+      priorContent,
     });
 
     if (!content) {

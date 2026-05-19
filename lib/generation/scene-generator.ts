@@ -71,6 +71,12 @@ export interface SceneContentOptions {
   agents?: AgentInfo[];
   languageDirective?: string;
   thinkingConfig?: ThinkingConfig;
+  /**
+   * Digest of all content slides generated before this scene, used to keep
+   * the quiz generator from testing material the slides never covered.
+   * Only consumed by `generateQuizContent`. Plain text, scene-by-scene.
+   */
+  priorContent?: string;
 }
 
 export interface SceneActionsOptions {
@@ -293,6 +299,7 @@ export async function generateSceneContent(
     agents,
     languageDirective,
     thinkingConfig,
+    priorContent,
   } = options;
 
   // Unified path for interactive scenes (both normal and ultra mode)
@@ -332,7 +339,7 @@ export async function generateSceneContent(
         languageDirective,
       );
     case 'quiz':
-      return generateQuizContent(outline, aiCall, languageDirective);
+      return generateQuizContent(outline, aiCall, languageDirective, priorContent);
     case 'pbl':
       return generatePBLSceneContent(outline, languageModel, languageDirective, thinkingConfig);
     default:
@@ -843,6 +850,7 @@ async function generateQuizContent(
   outline: SceneOutline,
   aiCall: AICallFn,
   languageDirective?: string,
+  priorContent?: string,
 ): Promise<GeneratedQuizContent | null> {
   const quizConfig = outline.quizConfig || {
     questionCount: 3,
@@ -858,6 +866,7 @@ async function generateQuizContent(
     difficulty: quizConfig.difficulty,
     questionTypes: quizConfig.questionTypes.join(', '),
     languageDirective: languageDirective || '',
+    priorContent: priorContent || '(no prior slide content was provided — fall back to the outline keyPoints and stay narrowly within them)',
   });
 
   if (!prompts) {
