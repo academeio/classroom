@@ -10,6 +10,7 @@ import { createLogger } from '@/lib/logger';
 import { PROVIDERS } from './providers';
 import { thinkingContext } from './thinking-context';
 import { getModelMetadataKey } from './model-metadata';
+import { isClaudeCliModel, executeClaudeCli } from './claude-cli';
 import type { ThinkingCapability, ThinkingConfig } from '@/lib/types/provider';
 import {
   getThinkingMode,
@@ -237,6 +238,106 @@ export interface LLMRetryOptions {
 const DEFAULT_VALIDATE = (text: string) => text.trim().length > 0;
 
 /**
+ * Normalize AI SDK GenerateTextParams into a single (system, user) string pair
+ * that the Claude Code CLI can consume. Handles all the common shapes:
+ *   { system, prompt }
+ *   { system, messages: [{role:'user', content}] }
+ *   { messages: [{role:'system'}, {role:'user'}] }
+ *   { messages: [{role:'user', content: [{type:'text', text}, ...]}] }
+ *
+ * Vision parts are skipped (CLI v1 doesn't support image attachments through
+ * stdin); only the text portions are concatenated.
+ */
+function paramsToSystemUser(params: GenerateTextParams): { system: string; user: string } {
+  const explicitSystem = typeof params.system === 'string' ? params.system : '';
+  const explicitPrompt = typeof params.prompt === 'string' ? params.prompt : '';
+
+  let systemFromMessages = '';
+  const userChunks: string[] = [];
+
+  const messages = (params as { messages?: unknown }).messages;
+  if (Array.isArray(messages)) {
+    for (const msg of messages) {
+      if (!msg || typeof msg !== 'object') continue;
+      const m = msg as { role?: string; content?: unknown };
+      const text = extractText(m.content);
+      if (!text) continue;
+      if (m.role === 'system') systemFromMessages += (systemFromMessages ? '\n\n' : '') + text;
+      else if (m.role === 'user') userChunks.push(text);
+      else if (m.role === 'assistant') {
+        // Multi-turn isn't supported in `claude -p --print` mode the way
+        // we use it; flatten any assistant turns into the user prompt as
+        // context. Rare for our generation pipeline.
+        userChunks.push(`[previous assistant]: ${text}`);
+      }
+    }
+  }
+
+  if (explicitPrompt) userChunks.push(explicitPrompt);
+
+  return {
+    system: [explicitSystem, systemFromMessages].filter(Boolean).join('\n\n'),
+    user: userChunks.join('\n\n'),
+  };
+}
+
+function extractText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (!part || typeof part !== 'object') return '';
+        const p = part as { type?: string; text?: string };
+        if (p.type === 'text' && typeof p.text === 'string') return p.text;
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  return '';
+}
+
+/**
+ * Call the Claude Code CLI and wrap the response in a shape that
+ * looks like an AI SDK GenerateTextResult. Only `text` is populated;
+ * `usage`, `finishReason`, etc. are filled with neutral defaults so
+ * callers that read them don't crash.
+ */
+async function callClaudeCliCompat<T extends GenerateTextParams>(
+  params: T,
+  source: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<GenerateTextResult<any, any>> {
+  const { system, user } = paramsToSystemUser(params);
+  if (!user) {
+    throw new Error(`claude-cli [${source}]: no user-role text content in params`);
+  }
+  const text = await executeClaudeCli({ systemPrompt: system, userPrompt: user });
+  // Minimal shape matching what the generation pipeline actually reads
+  // (mostly `.text`). Cast to AI SDK's result type so the public signature
+  // of callLLM stays unchanged.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stub: any = {
+    text,
+    finishReason: 'stop',
+    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    warnings: [],
+    response: { id: `claude-cli-${Date.now()}`, modelId: 'claude-cli', timestamp: new Date() },
+    request: {},
+    providerMetadata: {},
+    experimental_providerMetadata: {},
+    responseMessages: [{ role: 'assistant', content: text }],
+    steps: [],
+    toolCalls: [],
+    toolResults: [],
+    rawCall: { rawPrompt: null, rawSettings: {} },
+    rawResponse: { headers: {} },
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return stub as GenerateTextResult<any, any>;
+}
+
+/**
  * Unified wrapper around `generateText`.
  *
  * @param params - Same parameters as AI SDK's `generateText`
@@ -251,6 +352,11 @@ export async function callLLM<T extends GenerateTextParams>(
   thinking?: ThinkingConfig,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<GenerateTextResult<any, any>> {
+  // Claude Code CLI short-circuit — bypass the AI SDK entirely.
+  if (isClaudeCliModel(params.model)) {
+    return callClaudeCliCompat(params, source);
+  }
+
   const maxAttempts = (retryOptions?.retries ?? 0) + 1;
   const validate = retryOptions?.validate ?? (maxAttempts > 1 ? DEFAULT_VALIDATE : undefined);
 
@@ -311,10 +417,67 @@ export function streamLLM<T extends StreamTextParams>(
   thinking?: ThinkingConfig,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): StreamTextResult<any, any> {
+  // Claude Code CLI short-circuit — the CLI is non-streaming, so wrap the
+  // single text response in an async iterable that yields one chunk. Most
+  // downstream consumers only read `textStream`, so this is sufficient.
+  if (isClaudeCliModel(params.model)) {
+    return streamClaudeCliCompat(params, source);
+  }
+
   // Resolve effective thinking config and wrap in thinkingContext
   const effectiveThinking = thinking ?? getGlobalThinkingConfig();
   const injectedParams = injectProviderOptions(params, effectiveThinking);
   const result = thinkingContext.run(effectiveThinking, () => streamText(injectedParams));
 
   return result;
+}
+
+/**
+ * Streaming compatibility shim for `claude -p`. The CLI is request/response,
+ * not streaming, so this yields the full text as a single chunk. We expose
+ * the same `textStream`, `text`, `finishReason`, and `usage` accessors that
+ * downstream consumers actually read.
+ */
+function streamClaudeCliCompat<T extends StreamTextParams>(
+  params: T,
+  source: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): StreamTextResult<any, any> {
+  const { system, user } = paramsToSystemUser(params as unknown as GenerateTextParams);
+  // Lazily resolve the CLI call so the iterator only runs when consumed.
+  const textPromise: Promise<string> = (async () => {
+    if (!user) {
+      throw new Error(`claude-cli [${source}]: no user-role text content in params`);
+    }
+    return executeClaudeCli({ systemPrompt: system, userPrompt: user });
+  })();
+
+  const textStream = (async function* (): AsyncIterable<string> {
+    yield await textPromise;
+  })();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stub: any = {
+    textStream,
+    text: textPromise,
+    fullStream: textStream,
+    finishReason: Promise.resolve('stop' as const),
+    usage: Promise.resolve({ promptTokens: 0, completionTokens: 0, totalTokens: 0 }),
+    warnings: Promise.resolve([] as never[]),
+    toolCalls: Promise.resolve([] as never[]),
+    toolResults: Promise.resolve([] as never[]),
+    steps: Promise.resolve([] as never[]),
+    response: Promise.resolve({
+      id: `claude-cli-${Date.now()}`,
+      modelId: 'claude-cli',
+      timestamp: new Date(),
+    }),
+    request: Promise.resolve({}),
+    providerMetadata: Promise.resolve({}),
+    experimental_providerMetadata: Promise.resolve({}),
+    rawCall: Promise.resolve({ rawPrompt: null, rawSettings: {} }),
+    rawResponse: Promise.resolve({ headers: {} }),
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return stub as StreamTextResult<any, any>;
 }

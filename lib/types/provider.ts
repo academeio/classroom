@@ -8,6 +8,7 @@
 export type BuiltInProviderId =
   | 'openai'
   | 'anthropic'
+  | 'claude-cli'
   | 'google'
   | 'deepseek'
   | 'qwen'
@@ -32,7 +33,7 @@ export type ProviderId = BuiltInProviderId | `custom-${string}`;
 /**
  * Provider API types
  */
-export type ProviderType = 'openai' | 'anthropic' | 'google';
+export type ProviderType = 'openai' | 'anthropic' | 'google' | 'claude-cli';
 
 export type ThinkingControlType =
   | 'none'

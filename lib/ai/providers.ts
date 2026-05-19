@@ -147,6 +147,34 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
     ],
   },
 
+  // Claude Code CLI — uses the user's local `claude -p` subscription
+  // instead of the API. No API key, no per-token cost. See lib/ai/claude-cli.ts.
+  'claude-cli': {
+    id: 'claude-cli',
+    name: 'Claude Code (CLI subscription)',
+    // `type: 'claude-cli'` is a non-AI-SDK marker; getModel returns a sentinel
+    // that callLLM intercepts before reaching the AI SDK.
+    type: 'claude-cli',
+    requiresApiKey: false,
+    icon: '/logos/claude.svg',
+    models: [
+      {
+        id: 'claude-sonnet-4-6',
+        name: 'Claude Sonnet 4.6 (via CLI)',
+        contextWindow: 200000,
+        outputWindow: 64000,
+        capabilities: { streaming: false, tools: false, vision: false },
+      },
+      {
+        id: 'claude-opus-4-7',
+        name: 'Claude Opus 4.7 (via CLI)',
+        contextWindow: 200000,
+        outputWindow: 64000,
+        capabilities: { streaming: false, tools: false, vision: false },
+      },
+    ],
+  },
+
   anthropic: {
     id: 'anthropic',
     name: 'Claude',
@@ -1276,6 +1304,23 @@ export function getModel(config: ModelConfig): ModelWithInfo {
     } else {
       throw new Error(`Unknown provider: ${config.providerId}. Please provide providerType.`);
     }
+  }
+
+  // Claude Code CLI short-circuit: return a sentinel model that callLLM
+  // detects and routes to `claude -p` instead of the AI SDK. No API key,
+  // no base URL — the CLI reads OAuth from the user's keychain.
+  //
+  // The sentinel is constructed inline (not imported from claude-cli.ts)
+  // so providers.ts stays free of node:child_process — providers.ts gets
+  // bundled into the client; claude-cli.ts is server-only.
+  if (providerType === 'claude-cli') {
+    const modelInfo =
+      provider?.models.find((m) => m.id === config.modelId) || provider?.models[0] || null;
+    return {
+      // Shape must match ClaudeCliModel in lib/ai/claude-cli.ts.
+      model: { __isClaudeCli: true, modelId: config.modelId } as unknown as LanguageModel,
+      modelInfo,
+    };
   }
 
   // Validate API key if required
