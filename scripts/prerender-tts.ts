@@ -1,13 +1,21 @@
 /**
- * Pre-render TTS audio for existing classrooms.
+ * Pre-render TTS audio for EXISTING classrooms (back-fill).
  *
- * Fetches classroom data from Neon, generates TTS for all speech actions,
- * and stores the audio in the classroom_audio table.
+ * Fetches a classroom from Neon, renders TTS for every speech action via the
+ * pluggable TTS dispatcher (Kokoro local by default, or Sarvam), uploads each
+ * clip to R2, writes an audio manifest, and — crucially — stamps the audioId
+ * onto each speech action and the manifestUrl onto the classroom record so the
+ * player's R2 preload path (lib/utils/audio-preloader → preloadFromManifest)
+ * can stream it.
+ *
+ * This is the back-fill counterpart to the TTS step in
+ * scripts/generate-classroom.ts (which does the same for freshly-generated
+ * classrooms). Use it for classrooms created before the R2 audio pipeline.
  *
  * Usage:
- *   npx tsx scripts/prerender-tts.ts --classroom SrNVhpxHXJ
- *   npx tsx scripts/prerender-tts.ts --all-pilots
- *   npx tsx scripts/prerender-tts.ts --classroom SrNVhpxHXJ --voice en-IN-PrabhatNeural --speed 1.5
+ *   npx tsx scripts/prerender-tts.ts --classroom DCLxkHLZl7 --tts kokoro
+ *   npx tsx scripts/prerender-tts.ts --all-pilots --tts kokoro
+ *   npx tsx scripts/prerender-tts.ts --classroom DCLxkHLZl7 --tts sarvam --speed 1.0
  */
 
 import { config } from 'dotenv';
@@ -15,29 +23,11 @@ import { resolve } from 'path';
 config({ path: resolve(__dirname, '..', '.env.local') });
 
 import { neon } from '@neondatabase/serverless';
-import { saveAudio, getClassroomAudio } from '../lib/storage/neon-audio-store';
-import { SARVAM_VOICE_MAP, DEFAULT_SARVAM_VOICE } from '../lib/orchestration/registry/medical-agents';
+import { uploadClassroomAudio, uploadAudioManifest } from '../lib/storage/r2-client';
+import { SARVAM_VOICE_MAP } from '../lib/orchestration/registry/medical-agents';
+import { getSynthesizer, pickVoicePair, isValidProvider, type TTSProviderId } from '../lib/tts';
 
-// ── Config ──
-
-const DEFAULT_PROVIDER = 'azure-tts';
-const DEFAULT_VOICE = 'en-IN-NeerjaNeural';
 const DEFAULT_SPEED = 1.0;
-
-// Sarvam voice rotation — cycles through for variety when no agent match
-const VOICE_POOL = [
-  'kavitha',   // Female — clear, professional
-  'rahul',     // Male — warm, authoritative
-  'kavya',     // Female — young, friendly
-  'amit',      // Male — calm, mature
-  'shreya',    // Female — professional
-  'dev',       // Male — energetic
-  'priya',     // Female — methodical
-  'varun',     // Male — clear
-  'simran',    // Female — gentle
-];
-
-// ── Args ──
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -52,248 +42,144 @@ function parseArgs() {
   return parsed;
 }
 
-// ── TTS text preprocessing ──
-
-function preprocessForTTS(text: string): string {
-  return text
-    .replace(/(\d+)\s*[-–—]\s*(\d+)/g, '$1 to $2')
-    .replace(/(\d+)\s*[-–—]\s*(\d+)([a-zA-Z])/g, '$1 to $2$3')
-    .replace(/(\d)(cm|mm|kg|mg|ml|mmHg|mL|dL|µm|nm)\b/gi, '$1 $2')
-    .replace(/(\d)\s*%/g, '$1 percent');
-}
-
-// ── TTS Generation via Sarvam AI ──
-
-async function generateTTSViaSarvam(
-  text: string,
-  voice: string,
-  pace: number = 1.0,
-): Promise<{ base64: string; format: string }> {
-  const apiKey = process.env.SARVAM_API_KEY;
-  if (!apiKey) throw new Error('SARVAM_API_KEY not set in .env.local');
-
-  const processed = preprocessForTTS(text);
-  const truncatedText = processed.length > 2400 ? processed.substring(0, 2400) + '.' : processed;
-
-  const resp = await fetch('https://api.sarvam.ai/text-to-speech', {
-    method: 'POST',
-    headers: {
-      'api-subscription-key': apiKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      text: truncatedText,
-      target_language_code: 'en-IN',
-      model: 'bulbul:v3',
-      speaker: voice,
-      pace,
-      output_audio_codec: 'mp3',
-    }),
-  });
-
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new Error(`Sarvam API ${resp.status}: ${body}`);
-  }
-
-  const data = await resp.json();
-  if (!data.audios || !data.audios[0]) {
-    throw new Error('Sarvam API returned no audio');
-  }
-
-  return { base64: data.audios[0], format: 'mp3' };
-}
-
-// ── Agent voice lookup ──
-
-// Pick 2 random voices per classroom — one male, one female — and alternate
-const MALE_VOICES = ['rahul', 'amit', 'dev', 'varun'];
-const FEMALE_VOICES = ['kavitha', 'priya', 'kavya', 'shreya', 'simran'];
-
-let classroomVoicePair: [string, string] = ['kavitha', 'rahul']; // default, overridden per classroom
+// ── Per-classroom voice selection ──
+// Agent-name → voice mapping only applies to Sarvam (the map is Sarvam-specific).
+// For Kokoro every action alternates between the chosen [female, male] pair.
+let classroomVoicePair: [string, string] = ['kavitha', 'rahul'];
 let voiceAlternateIndex = 0;
+let activeProvider: TTSProviderId = 'kokoro';
 
-function pickVoicePair(): [string, string] {
-  const male = MALE_VOICES[Math.floor(Math.random() * MALE_VOICES.length)];
-  const female = FEMALE_VOICES[Math.floor(Math.random() * FEMALE_VOICES.length)];
-  return [female, male]; // female first (teacher), male second
-}
-
-function getVoiceForAction(action: any): string {
-  // Try to match agentId to a Sarvam voice
-  const agentId = action.agentId || action.speakerId || '';
-  if (agentId && SARVAM_VOICE_MAP[agentId]) {
-    return SARVAM_VOICE_MAP[agentId];
+function getVoiceForAction(action: Record<string, unknown>): string {
+  if (activeProvider === 'sarvam') {
+    const agentId = (action.agentId || action.speakerId || '') as string;
+    if (agentId && SARVAM_VOICE_MAP[agentId]) return SARVAM_VOICE_MAP[agentId];
+    const agentName = (action.agentName || action.speaker || '') as string;
+    const nameMap: Record<string, string> = {
+      Kavitha: 'kavitha', 'Dr. Kavitha': 'kavitha',
+      Rajesh: 'rahul', 'Dr. Rajesh': 'rahul',
+      Priya: 'priya', 'Dr. Priya': 'priya',
+      Arun: 'amit', 'Dr. Arun': 'amit',
+      Meera: 'shreya', 'Dr. Meera': 'shreya',
+      Ananya: 'kavya', Vikram: 'varun', Fatima: 'simran', Deepak: 'dev',
+    };
+    for (const [name, voice] of Object.entries(nameMap)) {
+      if (agentName.includes(name)) return voice;
+    }
   }
-  // Try to match by agent name in the text or metadata
-  const agentName = action.agentName || action.speaker || '';
-  const nameMap: Record<string, string> = {
-    'Kavitha': 'kavitha', 'Dr. Kavitha': 'kavitha',
-    'Rajesh': 'rahul', 'Dr. Rajesh': 'rahul',
-    'Priya': 'priya', 'Dr. Priya': 'priya',
-    'Arun': 'amit', 'Dr. Arun': 'amit',
-    'Meera': 'shreya', 'Dr. Meera': 'shreya',
-    'Ananya': 'kavya',
-    'Vikram': 'varun',
-    'Fatima': 'simran',
-    'Deepak': 'dev',
-  };
-  for (const [name, voice] of Object.entries(nameMap)) {
-    if (agentName.includes(name)) return voice;
-  }
-  // No agent match — alternate between the 2 selected voices for this classroom
   const voice = classroomVoicePair[voiceAlternateIndex % 2];
   voiceAlternateIndex++;
   return voice;
 }
 
-// ── Auth ──
-
-async function authenticate(baseUrl: string, password: string): Promise<string> {
-  const resp = await fetch(`${baseUrl}/api/auth`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
-    redirect: 'manual',
-  });
-  if (!resp.ok) throw new Error(`Auth failed: ${resp.status}`);
-  const setCookie = resp.headers.get('set-cookie');
-  return setCookie ? setCookie.split(';')[0] : '';
-}
-
-// ── Main ──
-
 async function main() {
   const args = parseArgs();
   const speed = parseFloat(args.speed || String(DEFAULT_SPEED));
-
-  if (!process.env.SARVAM_API_KEY) {
-    console.error('SARVAM_API_KEY not set in .env.local');
+  const ttsRaw = (args.tts || 'kokoro').toLowerCase();
+  if (!isValidProvider(ttsRaw)) {
+    console.error(`Unknown --tts value "${ttsRaw}". Use "kokoro" or "sarvam".`);
     process.exit(1);
   }
+  activeProvider = ttsRaw;
+  const synthesize = getSynthesizer(activeProvider);
 
   const sql = neon(process.env.DATABASE_URL!);
 
-  // Get classrooms to process
   let classroomIds: string[] = [];
   if (args['all-pilots']) {
     const rows = await sql`SELECT id, title FROM classrooms WHERE is_pilot = true ORDER BY created_at`;
-    classroomIds = rows.map((r: any) => r.id);
+    classroomIds = rows.map((r: Record<string, unknown>) => r.id as string);
     console.log(`Found ${classroomIds.length} pilot classrooms`);
-    rows.forEach((r: any) => console.log(`  ${r.id} — ${r.title}`));
   } else if (args.classroom) {
     classroomIds = [args.classroom];
   } else {
-    console.error('Usage: npx tsx scripts/prerender-tts.ts --all-pilots');
-    console.error('       npx tsx scripts/prerender-tts.ts --classroom <id>');
+    console.error('Usage: npx tsx scripts/prerender-tts.ts --classroom <id> [--tts kokoro|sarvam]');
+    console.error('       npx tsx scripts/prerender-tts.ts --all-pilots --tts kokoro');
     process.exit(1);
   }
 
-  console.log(`\nTTS: Sarvam AI Bulbul v3 | speed=${speed}x | per-agent voice mapping`);
+  console.log(`\nTTS provider: ${activeProvider} | speed=${speed}x`);
 
-  let totalRendered = 0;
-  let totalSkipped = 0;
-  let totalErrors = 0;
-  let totalChars = 0;
+  let grandRendered = 0;
+  let grandErrors = 0;
+  let grandChars = 0;
 
   for (const classroomId of classroomIds) {
-    // Pick a random pair of voices (1 female + 1 male) for this classroom
-    classroomVoicePair = pickVoicePair();
+    classroomVoicePair = pickVoicePair(activeProvider);
     voiceAlternateIndex = 0;
 
     console.log(`\n${'='.repeat(60)}`);
     console.log(`Processing: ${classroomId}`);
     console.log(`  Voices: ${classroomVoicePair[0]} (F) + ${classroomVoicePair[1]} (M)`);
 
-    // Fetch classroom data
     const rows = await sql`SELECT classroom_data, title FROM classrooms WHERE id = ${classroomId}`;
     if (rows.length === 0) {
-      console.log(`  NOT FOUND — skipping`);
+      console.log('  NOT FOUND — skipping');
       continue;
     }
-
     const data = typeof rows[0].classroom_data === 'string'
-      ? JSON.parse(rows[0].classroom_data)
+      ? JSON.parse(rows[0].classroom_data as string)
       : rows[0].classroom_data;
-    const title = rows[0].title;
-    console.log(`  Title: ${title}`);
+    console.log(`  Title: ${rows[0].title}`);
 
     const scenes = data.scenes || [];
     console.log(`  Scenes: ${scenes.length}`);
 
-    // Check what's already pre-rendered
-    const existingAudio = await getClassroomAudio(classroomId);
-    const existingIds = new Set(existingAudio.map((a: any) => a.audioId));
-    console.log(`  Already pre-rendered: ${existingIds.size} audio files`);
+    const audioManifestEntries: Array<{ audioId: string; url: string }> = [];
+    let rendered = 0;
+    let errors = 0;
+    let chars = 0;
 
-    // Collect all speech actions
-    const speechActions: Array<{ sceneTitle: string; actionId: string; text: string; agentId?: string; agentName?: string }> = [];
+    // Iterate the ACTUAL scene actions so we can stamp audioId in place.
     for (const scene of scenes) {
       const actions = scene.actions || [];
       for (const action of actions) {
-        if (action.type === 'speech' && action.text) {
-          const audioId = action.id || action.audioId || `tts_${action.id}`;
-          speechActions.push({
-            sceneTitle: scene.title || 'Untitled',
-            actionId: audioId,
-            text: action.text,
-            agentId: action.agentId,
-            agentName: action.agentName || action.speaker,
-          });
+        if (action.type !== 'speech' || !action.text) continue;
+
+        // Stable audioId: reuse action.id (mirrors generate-classroom.ts).
+        const audioId = (action.id || action.audioId) as string | undefined;
+        if (!audioId) continue;
+        action.audioId = audioId; // stamp for the player + preloader
+
+        const text = action.text as string;
+        const voice = getVoiceForAction(action);
+        process.stdout.write(`  "${audioId}" [${voice}] (${text.length} chars)... `);
+        try {
+          const { buffer, format } = await synthesize({ text, voice, pace: speed });
+          const url = await uploadClassroomAudio(classroomId, audioId, buffer, format);
+          audioManifestEntries.push({ audioId, url });
+          rendered++;
+          chars += text.length;
+          console.log(`done (${Math.round(buffer.length / 1024)}KB) → R2`);
+        } catch (err) {
+          errors++;
+          console.log(`FAILED: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     }
 
-    console.log(`  Speech actions: ${speechActions.length}`);
-
-    // Pre-render each speech action
-    for (let i = 0; i < speechActions.length; i++) {
-      const { sceneTitle, actionId, text } = speechActions[i];
-
-      // Skip if already rendered
-      if (existingIds.has(actionId)) {
-        totalSkipped++;
-        continue;
-      }
-
-      const agentVoice = getVoiceForAction(speechActions[i]);
-      process.stdout.write(`  [${i + 1}/${speechActions.length}] "${sceneTitle}" [${agentVoice}] (${text.length} chars)... `);
-
-      try {
-        const { base64, format } = await generateTTSViaSarvam(text, agentVoice, speed);
-        await saveAudio(actionId, classroomId, base64, format);
-        totalRendered++;
-        totalChars += text.length;
-        console.log(`done (${Math.round(base64.length / 1024)}KB)`);
-        // Rate limit: small delay between Sarvam API calls
-        await new Promise(r => setTimeout(r, 300));
-      } catch (err) {
-        totalErrors++;
-        const msg = err instanceof Error ? err.message : String(err);
-        console.log(`FAILED: ${msg}`);
-        // If rate limited, wait longer and retry once
-        if (msg.includes('429') || msg.includes('rate') || msg.includes('Too Many')) {
-          console.log('    Rate limited — waiting 10s...');
-          await new Promise(r => setTimeout(r, 10000));
-        }
-      }
+    if (audioManifestEntries.length === 0) {
+      console.log('  No audio rendered — leaving classroom unchanged.');
+      continue;
     }
-  }
 
-  // Log usage to Neon for cost tracking
-  if (totalRendered > 0) {
-    await sql`
-      INSERT INTO tts_usage_log (classroom_id, provider, total_chars, total_requests)
-      VALUES (${'batch'}, ${'sarvam-bulbul-v3'}, ${totalChars}, ${totalRendered})
-    `;
+    // Upload manifest + persist manifestUrl and the audioId-stamped scenes.
+    const manifestUrl = await uploadAudioManifest(classroomId, audioManifestEntries);
+    data.manifestUrl = manifestUrl;
+    await sql`UPDATE classrooms SET classroom_data = ${JSON.stringify(data)} WHERE id = ${classroomId}`;
+    console.log(`  Manifest: ${manifestUrl}`);
+    console.log(`  Stamped ${audioManifestEntries.length} audioIds + manifestUrl into classroom_data`);
+
+    grandRendered += rendered;
+    grandErrors += errors;
+    grandChars += chars;
   }
 
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`TTS Pre-rendering Complete`);
-  console.log(`  Rendered: ${totalRendered}`);
-  console.log(`  Characters: ${totalChars.toLocaleString()}`);
-  console.log(`  Skipped (existing): ${totalSkipped}`);
-  console.log(`  Errors: ${totalErrors}`);
+  console.log('TTS Pre-rendering Complete');
+  console.log(`  Provider:   ${activeProvider}`);
+  console.log(`  Rendered:   ${grandRendered}`);
+  console.log(`  Characters: ${grandChars.toLocaleString()}`);
+  console.log(`  Errors:     ${grandErrors}`);
   console.log('='.repeat(60));
 }
 
