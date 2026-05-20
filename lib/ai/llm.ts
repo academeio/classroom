@@ -11,6 +11,7 @@ import { PROVIDERS } from './providers';
 import { thinkingContext } from './thinking-context';
 import { getModelMetadataKey } from './model-metadata';
 import { isClaudeCliModel, executeClaudeCli } from './claude-cli';
+import { isCodexCliModel, executeCodexCli } from './codex-cli';
 import type { ThinkingCapability, ThinkingConfig } from '@/lib/types/provider';
 import {
   getThinkingMode,
@@ -356,6 +357,10 @@ export async function callLLM<T extends GenerateTextParams>(
   if (isClaudeCliModel(params.model)) {
     return callClaudeCliCompat(params, source);
   }
+  // OpenAI Codex CLI short-circuit — same pattern, different executable.
+  if (isCodexCliModel(params.model)) {
+    return callCodexCliCompat(params, source);
+  }
 
   const maxAttempts = (retryOptions?.retries ?? 0) + 1;
   const validate = retryOptions?.validate ?? (maxAttempts > 1 ? DEFAULT_VALIDATE : undefined);
@@ -423,6 +428,10 @@ export function streamLLM<T extends StreamTextParams>(
   if (isClaudeCliModel(params.model)) {
     return streamClaudeCliCompat(params, source);
   }
+  // OpenAI Codex CLI — same fake-stream pattern.
+  if (isCodexCliModel(params.model)) {
+    return streamCodexCliCompat(params, source);
+  }
 
   // Resolve effective thinking config and wrap in thinkingContext
   const effectiveThinking = thinking ?? getGlobalThinkingConfig();
@@ -430,6 +439,94 @@ export function streamLLM<T extends StreamTextParams>(
   const result = thinkingContext.run(effectiveThinking, () => streamText(injectedParams));
 
   return result;
+}
+
+/**
+ * Codex CLI counterpart of callClaudeCliCompat. Routes through executeCodexCli.
+ * Identical structure to claude-cli's compat — the only differences are the
+ * sentinel-extracted modelId (used as `-c model=<id>`) and the executable.
+ */
+async function callCodexCliCompat<T extends GenerateTextParams>(
+  params: T,
+  source: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<GenerateTextResult<any, any>> {
+  const { system, user } = paramsToSystemUser(params);
+  if (!user) {
+    throw new Error(`codex-cli [${source}]: no user-role text content in params`);
+  }
+  const modelId = (params.model as unknown as { modelId?: string })?.modelId;
+  const text = await executeCodexCli({
+    systemPrompt: system,
+    userPrompt: user,
+    modelId,
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stub: any = {
+    text,
+    finishReason: 'stop',
+    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    warnings: [],
+    response: { id: `codex-cli-${Date.now()}`, modelId: 'codex-cli', timestamp: new Date() },
+    request: {},
+    providerMetadata: {},
+    experimental_providerMetadata: {},
+    responseMessages: [{ role: 'assistant', content: text }],
+    steps: [],
+    toolCalls: [],
+    toolResults: [],
+    rawCall: { rawPrompt: null, rawSettings: {} },
+    rawResponse: { headers: {} },
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return stub as GenerateTextResult<any, any>;
+}
+
+/**
+ * Codex CLI streaming shim — same as claude-cli's, just routed through
+ * executeCodexCli. Yields the full response as a single chunk because the
+ * CLI is request/response.
+ */
+function streamCodexCliCompat<T extends StreamTextParams>(
+  params: T,
+  source: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): StreamTextResult<any, any> {
+  const { system, user } = paramsToSystemUser(params as unknown as GenerateTextParams);
+  const modelId = (params.model as unknown as { modelId?: string })?.modelId;
+  const textPromise: Promise<string> = (async () => {
+    if (!user) {
+      throw new Error(`codex-cli [${source}]: no user-role text content in params`);
+    }
+    return executeCodexCli({ systemPrompt: system, userPrompt: user, modelId });
+  })();
+  const textStream = (async function* (): AsyncIterable<string> {
+    yield await textPromise;
+  })();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stub: any = {
+    textStream,
+    text: textPromise,
+    fullStream: textStream,
+    finishReason: Promise.resolve('stop' as const),
+    usage: Promise.resolve({ promptTokens: 0, completionTokens: 0, totalTokens: 0 }),
+    warnings: Promise.resolve([] as never[]),
+    toolCalls: Promise.resolve([] as never[]),
+    toolResults: Promise.resolve([] as never[]),
+    steps: Promise.resolve([] as never[]),
+    response: Promise.resolve({
+      id: `codex-cli-${Date.now()}`,
+      modelId: 'codex-cli',
+      timestamp: new Date(),
+    }),
+    request: Promise.resolve({}),
+    providerMetadata: Promise.resolve({}),
+    experimental_providerMetadata: Promise.resolve({}),
+    rawCall: Promise.resolve({ rawPrompt: null, rawSettings: {} }),
+    rawResponse: Promise.resolve({ headers: {} }),
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return stub as StreamTextResult<any, any>;
 }
 
 /**

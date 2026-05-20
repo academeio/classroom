@@ -147,6 +147,32 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
     ],
   },
 
+  // OpenAI Codex CLI — uses the user's local `codex exec` ChatGPT
+  // subscription instead of the OpenAI API. See lib/ai/codex-cli.ts.
+  'codex-cli': {
+    id: 'codex-cli',
+    name: 'OpenAI Codex (CLI subscription)',
+    type: 'codex-cli',
+    requiresApiKey: false,
+    icon: '/logos/openai.svg',
+    models: [
+      {
+        id: 'gpt-5.1',
+        name: 'GPT-5.1 (via Codex CLI)',
+        contextWindow: 200000,
+        outputWindow: 64000,
+        capabilities: { streaming: false, tools: false, vision: false },
+      },
+      {
+        id: 'o3',
+        name: 'o3 (via Codex CLI)',
+        contextWindow: 200000,
+        outputWindow: 100000,
+        capabilities: { streaming: false, tools: false, vision: false },
+      },
+    ],
+  },
+
   // Claude Code CLI — uses the user's local `claude -p` subscription
   // instead of the API. No API key, no per-token cost. See lib/ai/claude-cli.ts.
   'claude-cli': {
@@ -1319,6 +1345,17 @@ export function getModel(config: ModelConfig): ModelWithInfo {
     return {
       // Shape must match ClaudeCliModel in lib/ai/claude-cli.ts.
       model: { __isClaudeCli: true, modelId: config.modelId } as unknown as LanguageModel,
+      modelInfo,
+    };
+  }
+
+  // OpenAI Codex CLI — see lib/ai/codex-cli.ts. Same sentinel pattern as
+  // claude-cli; callLLM detects the marker and routes to `codex exec`.
+  if (providerType === 'codex-cli') {
+    const modelInfo =
+      provider?.models.find((m) => m.id === config.modelId) || provider?.models[0] || null;
+    return {
+      model: { __isCodexCli: true, modelId: config.modelId } as unknown as LanguageModel,
       modelInfo,
     };
   }
