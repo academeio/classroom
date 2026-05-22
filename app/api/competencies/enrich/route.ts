@@ -2,7 +2,10 @@ import { type NextRequest } from 'next/server';
 import { apiSuccess, apiError } from '@/lib/server/api-response';
 import { getDb } from '@/lib/neon/client';
 
-const MAX_CODES = 15;
+// Enrich is a single DB lookup (no LLM, no per-code cost), so the cap is just
+// a sanity bound. Raised from 15 to cover large NMC topics — e.g. CNS Physiology
+// has 20 competencies (PY10.1–PY10.20).
+const MAX_CODES = 30;
 
 export async function POST(request: NextRequest) {
   try {
