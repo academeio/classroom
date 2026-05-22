@@ -91,6 +91,10 @@ interface CliArgs {
   enhancedPrompts?: string; // Path to pre-generated enhanced image prompts JSON
   preGenerated?: string; // Path to directory with pre-generated outlines.json + scenes.json
   tts: TTSProviderId; // TTS provider — sarvam (default) or kokoro (local, no network)
+  /** Image generation provider. Default: gemini-medical (direct Gemini fetch).
+   *  Anything else routes through /api/generate/image — supports
+   *  openai-image, nano-banana, seedream, etc. */
+  imageProvider: string;
 }
 
 // ── Argument parsing ──
@@ -118,10 +122,13 @@ Usage:
     --model "anthropic:claude-sonnet-4-latest" \\
     --enhanced-prompts "/tmp/enhanced-prompts.json" \\
     --pre-generated "/tmp/classroom-spec/" \\
-    --tts kokoro
+    --tts kokoro \\
+    --image-provider openai-image
 
 Required: --topic, --password (--requirement optional if --pre-generated)
-Optional: --base-url, --competencies, --model, --enhanced-prompts, --pre-generated, --tts (sarvam|kokoro)
+Optional: --base-url, --competencies, --model, --enhanced-prompts, --pre-generated,
+          --tts (sarvam|kokoro),
+          --image-provider (gemini-medical|openai-image|nano-banana|seedream|...)
 `);
     process.exit(1);
   }
@@ -142,6 +149,7 @@ Optional: --base-url, --competencies, --model, --enhanced-prompts, --pre-generat
     enhancedPrompts: parsed['enhanced-prompts'],
     preGenerated: parsed['pre-generated'],
     tts: ttsRaw,
+    imageProvider: (parsed['image-provider'] || 'gemini-medical').toLowerCase(),
   };
 }
 
@@ -566,19 +574,90 @@ async function main() {
       console.log(`  Loaded ${Object.keys(enhancedPrompts).length} enhanced prompts from: ${args.enhancedPrompts}`);
     }
 
-    // Resolve Gemini API key from env (bypass the server API route entirely)
-    const geminiApiKey = process.env.IMAGE_GEMINI_MEDICAL_API_KEY || process.env.GOOGLE_API_KEY || process.env.IMAGE_NANO_BANANA_API_KEY;
-    if (!geminiApiKey) {
+    const useDirectGemini = args.imageProvider === 'gemini-medical';
+    // Resolve Gemini API key only when staying on the direct-Gemini path.
+    const geminiApiKey = useDirectGemini
+      ? process.env.IMAGE_GEMINI_MEDICAL_API_KEY || process.env.GOOGLE_API_KEY || process.env.IMAGE_NANO_BANANA_API_KEY
+      : '';
+    if (useDirectGemini && !geminiApiKey) {
       console.log('  WARNING: No Gemini API key found. Skipping image generation.');
     }
 
-    console.log(`  Generating ${mediaRequests.length} medical diagram(s) via Gemini (direct)...`);
+    if (useDirectGemini) {
+      console.log(`  Generating ${mediaRequests.length} medical diagram(s) via Gemini (direct)...`);
+    } else {
+      console.log(`  Generating ${mediaRequests.length} medical diagram(s) via "${args.imageProvider}" (server API)...`);
+    }
     for (let i = 0; i < mediaRequests.length; i++) {
       const req = mediaRequests[i];
       process.stdout.write(`  [${i + 1}/${mediaRequests.length}] "${req.elementId}" ... `);
 
-      if (!geminiApiKey) {
+      if (useDirectGemini && !geminiApiKey) {
         console.log('skipped (no API key)');
+        continue;
+      }
+
+      // Non-Gemini providers route through /api/generate/image (which uses
+      // the lib/media/image-providers adapter table). Skip the rest of the
+      // direct-Gemini block.
+      if (!useDirectGemini) {
+        const rawPrompt = enhancedPrompts[req.elementId]
+          ? `Generate a medical education diagram based on this specification:\n\n${JSON.stringify(enhancedPrompts[req.elementId].gemini_prompt, null, 2)}`
+          : [
+              `Generate a medical education diagram: ${req.prompt}`,
+              '',
+              'Style: Clean digital illustration, white background, medical textbook aesthetic.',
+              'Include full anatomical labels with leader lines directly on the diagram.',
+              'Colors: arteries red, veins blue, nerves yellow, lymph green, bone off-white.',
+              'Labels: clean sans-serif font, high contrast. Diagram should be self-explanatory.',
+            ].join('\n');
+        process.stdout.write(`[${args.imageProvider}] `);
+        try {
+          const resp = await apiFetch(`${args.baseUrl}/api/generate/image`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-image-provider': args.imageProvider,
+            },
+            body: JSON.stringify({ prompt: rawPrompt, aspectRatio: '16:9' }),
+          });
+          if (!resp.ok) {
+            const body = await resp.text().catch(() => '');
+            console.log(`failed (${resp.status}): ${body.substring(0, 100)}`);
+            await tryFallbackImage(req, stageId, args.baseUrl, generatedImages);
+            continue;
+          }
+          const json = await resp.json();
+          const data = json?.data?.result || json?.result || json?.data;
+          // Adapter result is { images: [{ b64?: string, url?: string }] } shape;
+          // tolerate variations across providers.
+          const first = data?.images?.[0] || data?.[0] || data;
+          const b64 = first?.b64 || first?.b64_json || first?.base64;
+          const url = first?.url;
+          let rawBuffer: Buffer;
+          if (b64) {
+            rawBuffer = Buffer.from(b64, 'base64');
+          } else if (url) {
+            const dl = await fetch(url);
+            rawBuffer = Buffer.from(await dl.arrayBuffer());
+          } else {
+            console.log('no image data in response');
+            await tryFallbackImage(req, stageId, args.baseUrl, generatedImages);
+            continue;
+          }
+          const compressed = await sharp(rawBuffer)
+            .resize(800, null, { withoutEnlargement: true })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+          const originalKB = Math.round(rawBuffer.length / 1024);
+          const compressedKB = Math.round(compressed.length / 1024);
+          const imageUrl = await uploadClassroomImage(classroomId, req.elementId, compressed);
+          generatedImages[req.elementId] = imageUrl;
+          console.log(`done (${originalKB}KB → ${compressedKB}KB) → R2`);
+        } catch (err) {
+          console.log(`error: ${err instanceof Error ? err.message : err}`);
+          await tryFallbackImage(req, stageId, args.baseUrl, generatedImages);
+        }
         continue;
       }
 
@@ -614,7 +693,7 @@ async function main() {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'x-goog-api-key': geminiApiKey,
+              'x-goog-api-key': geminiApiKey as string,
             },
             body: JSON.stringify({
               contents: [{ parts: [{ text: geminiPromptText }] }],
